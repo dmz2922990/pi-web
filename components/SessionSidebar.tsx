@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import type { SessionInfo } from "@/lib/types";
+import type { Bubble } from "@/lib/bubble-types";
 import { FileExplorer } from "./FileExplorer";
+import { BubbleNode } from "./BubbleNode";
 
 interface Props {
   selectedSessionId: string | null;
@@ -17,6 +19,7 @@ interface Props {
   onOpenFile?: (filePath: string, fileName: string) => void;
   explorerRefreshKey?: number;
   onAtMention?: (relativePath: string) => void;
+  onBubbleDeleted?: (bubbleId: string) => void;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -196,10 +199,11 @@ function PiAgentTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, explorerRefreshKey, onAtMention, onBubbleDeleted }: Props) {
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [bubbles, setBubbles] = useState<Bubble[]>([]);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
   const [homeDir, setHomeDir] = useState<string>("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -234,12 +238,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     }
   }, []);
 
+  const loadBubbles = useCallback(async () => {
+    try {
+      const res = await fetch("/api/bubbles");
+      if (res.ok) {
+        const data = await res.json() as { bubbles: Bubble[] };
+        setBubbles(data.bubbles);
+      }
+    } catch {
+      // Ignore bubble loading errors
+    }
+  }, []);
+
   const initialLoadDone = useRef(false);
   useEffect(() => {
     const isFirst = !initialLoadDone.current;
     initialLoadDone.current = true;
     loadSessions(isFirst);
-  }, [loadSessions, refreshKey]);
+    loadBubbles();
+  }, [loadSessions, loadBubbles, refreshKey]);
 
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
@@ -325,10 +342,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     onNewSession?.(tempId, selectedCwd);
   }, [selectedCwd, onNewSession]);
 
+  const bubbleSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const b of bubbles) {
+      if (b.gatewaySessionId) ids.add(b.gatewaySessionId);
+      for (const w of b.workers) ids.add(w.sessionId);
+    }
+    return ids;
+  }, [bubbles]);
+
   const recentCwds = getRecentCwds(allSessions);
-  const filteredSessions = selectedCwd
+  const filteredSessions = (selectedCwd
     ? allSessions.filter((s) => s.cwd === selectedCwd)
-    : allSessions;
+    : allSessions
+  ).filter((s) => !bubbleSessionIds.has(s.id));
 
   // Build parent-child tree within the filtered set
   const sessionTree = buildSessionTree(filteredSessions);
@@ -648,9 +675,30 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && filteredSessions.length === 0 && (
+        {!loading && !error && filteredSessions.length === 0 && bubbles.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             No sessions found
+          </div>
+        )}
+        {bubbles.length > 0 && (
+          <div style={{ borderBottom: "1px solid var(--border)", marginBottom: 4, paddingBottom: 4 }}>
+            <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Work Bubbles
+            </div>
+            {bubbles.map((b) => (
+              <BubbleNode
+                key={b.id}
+                bubble={b}
+                selectedSessionId={selectedSessionId}
+                onSelectSession={onSelectSession}
+                onDelete={onBubbleDeleted ? (id: string) => {
+                  fetch(`/api/bubbles/${id}`, { method: "DELETE" }).then(() => {
+                    loadBubbles();
+                    onBubbleDeleted?.(id);
+                  }).catch(() => {});
+                } : undefined}
+              />
+            ))}
           </div>
         )}
         {sessionTree.map((node) => (

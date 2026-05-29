@@ -8,6 +8,8 @@ import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
+import { BubbleCreateDialog } from "./BubbleCreateDialog";
+import type { Bubble } from "@/lib/bubble-types";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import type { SessionInfo, SessionTreeNode } from "@/lib/types";
@@ -26,6 +28,7 @@ export function AppShell() {
   const [modelsConfigOpen, setModelsConfigOpen] = useState(false);
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
+  const [bubbleCreateOpen, setBubbleCreateOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
@@ -165,6 +168,25 @@ export function AppShell() {
     setExplorerRefreshKey((k) => k + 1);
   }, []);
 
+  const handleBubbleCreated = useCallback((bubble: Bubble) => {
+    if (!bubble.gatewaySessionId) return;
+    const session: SessionInfo = {
+      id: bubble.gatewaySessionId,
+      path: "",
+      cwd: bubble.cwd,
+      name: `Bubble: ${bubble.templateName}`,
+      created: bubble.createdAt,
+      modified: bubble.createdAt,
+      messageCount: 0,
+      firstMessage: "",
+    };
+    setSelectedSession(session);
+    setNewSessionCwd(null);
+    setRefreshKey((k) => k + 1);
+    setSessionKey((k) => k + 1);
+    router.replace(`?session=${encodeURIComponent(bubble.gatewaySessionId)}`, { scroll: false });
+  }, [router]);
+
   const handleSessionForked = useCallback((newSessionId: string) => {
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
@@ -241,6 +263,7 @@ export function AppShell() {
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
         onAtMention={handleAtMention}
+        onBubbleDeleted={() => { setRefreshKey((k) => k + 1); }}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -267,6 +290,16 @@ export function AppShell() {
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
                 <path d="M2 17l10 5 10-5" />
                 <path d="M2 12l10 5 10-5" />
+              </svg>
+            ),
+          },
+          {
+            label: "Bubble",
+            onClick: () => setBubbleCreateOpen(true),
+            disabled: !activeCwd && !selectedSession?.cwd && !newSessionCwd,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" /><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="2" y1="12" x2="6" y2="12" /><line x1="18" y1="12" x2="22" y2="12" />
               </svg>
             ),
           },
@@ -647,6 +680,13 @@ export function AppShell() {
     {modelsConfigOpen && <ModelsConfig onClose={() => { setModelsConfigOpen(false); setModelsRefreshKey((k) => k + 1); }} />}
     {skillsConfigOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
       <SkillsConfig cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!} onClose={() => setSkillsConfigOpen(false)} />
+    )}
+    {bubbleCreateOpen && (activeCwd ?? selectedSession?.cwd ?? newSessionCwd) && (
+      <BubbleCreateDialog
+        cwd={(activeCwd ?? selectedSession?.cwd ?? newSessionCwd)!}
+        onClose={() => setBubbleCreateOpen(false)}
+        onBubbleCreated={(bubble: Bubble) => { setBubbleCreateOpen(false); handleBubbleCreated(bubble); }}
+      />
     )}
     </>
   );
