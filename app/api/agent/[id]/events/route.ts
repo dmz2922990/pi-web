@@ -33,8 +33,10 @@ export async function GET(
         controller.enqueue(new TextEncoder().encode(text));
       };
 
-      // Send initial connected event
-      encode({ type: "connected", sessionId: id });
+      // Send initial connected event with current streaming state
+      // so the client can correct stale "waiting_model" phase
+      const currentState = session.inner.isStreaming;
+      encode({ type: "connected", sessionId: id, isStreaming: currentState });
 
       const unsubscribe = session.onEvent((event) => {
         encode(event);

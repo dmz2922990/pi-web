@@ -1,3 +1,14 @@
+// --- SSH Configuration ---
+
+export interface SshConfig {
+	host: string;
+	port?: number;
+	user?: string;
+	privateKey?: string;
+	password?: string;
+	remoteCwd?: string;
+}
+
 // --- Bubble Template ---
 
 export interface BubbleEnvironmentField {
@@ -14,6 +25,8 @@ export interface BubbleRole {
 	tools: string[];
 	model?: { provider: string; modelId: string };
 	timeoutMinutes?: number;
+	executionMode?: "local" | "ssh" | "remote";
+	ssh?: SshConfig;
 }
 
 export interface BubbleGateway {
@@ -45,6 +58,7 @@ export interface BubbleResult {
 
 export interface Bubble {
 	id: string;
+	name: string;
 	templateName: string;
 	cwd: string;
 	status: BubbleStatus;

@@ -76,12 +76,14 @@ export function createBubble(
 	templateName: string,
 	cwd: string,
 	environment: Record<string, string>,
+	name?: string,
 ): Bubble {
 	const id = `bubble_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 	const now = new Date().toISOString();
 
 	const bubble: Bubble = {
 		id,
+		name: name ?? templateName,
 		templateName,
 		cwd,
 		status: "running",

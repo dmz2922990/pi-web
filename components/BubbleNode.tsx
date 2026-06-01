@@ -25,10 +25,17 @@ interface Props {
 export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelete }: Props) {
 	const [collapsed, setCollapsed] = useState(false);
 
-	const statusColor =
+	const anyWorking =
+		bubble.gatewayStreaming ||
+		(bubble.workerStates ?? []).some((w) => w.isStreaming);
+
+	const bubbleDotColor =
 		bubble.status === "completed" ? "#22c55e" :
 		bubble.status === "failed" ? "#ef4444" :
-		"#3b82f6";
+		anyWorking ? "#3b82f6" :
+		"var(--text-dim)";
+
+	const bubbleLabel = bubble.name || bubble.templateName;
 
 	const makeSessionInfo = (sessionId: string, label: string): SessionInfo => ({
 		id: sessionId,
@@ -66,14 +73,14 @@ export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelet
 				</svg>
 				<div style={{
 					width: 8, height: 8, borderRadius: "50%",
-					background: statusColor, flexShrink: 0,
-					boxShadow: bubble.status === "running" ? `0 0 6px ${statusColor}` : "none",
+					background: bubbleDotColor, flexShrink: 0,
+					boxShadow: anyWorking && bubble.status === "running" ? `0 0 6px #3b82f6` : "none",
 				}} />
 				<span style={{
 					fontSize: 12, fontWeight: 600, color: "var(--text)",
 					overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
 				}}>
-					{bubble.templateName}
+					{bubbleLabel}
 				</span>
 				{onDelete && (
 					<button
@@ -102,7 +109,7 @@ export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelet
 							sessionId={bubble.gatewaySessionId}
 							isStreaming={bubble.gatewayStreaming}
 							isSelected={selectedSessionId === bubble.gatewaySessionId}
-							onClick={() => onSelectSession(makeSessionInfo(bubble.gatewaySessionId, `Gateway (${bubble.templateName})`))}
+							onClick={() => onSelectSession(makeSessionInfo(bubble.gatewaySessionId, `Gateway (${bubbleLabel})`))}
 						/>
 					)}
 					{/* Workers */}

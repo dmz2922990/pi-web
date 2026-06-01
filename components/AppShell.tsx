@@ -9,6 +9,7 @@ import { TabBar, type Tab } from "./TabBar";
 import { ModelsConfig } from "./ModelsConfig";
 import { SkillsConfig } from "./SkillsConfig";
 import { BubbleCreateDialog } from "./BubbleCreateDialog";
+import { HostsConfig } from "./HostsConfig";
 import type { Bubble } from "@/lib/bubble-types";
 import { BranchNavigator } from "./BranchNavigator";
 import { useTheme } from "@/hooks/useTheme";
@@ -29,6 +30,7 @@ export function AppShell() {
   const [modelsRefreshKey, setModelsRefreshKey] = useState(0);
   const [skillsConfigOpen, setSkillsConfigOpen] = useState(false);
   const [bubbleCreateOpen, setBubbleCreateOpen] = useState(false);
+  const [hostsConfigOpen, setHostsConfigOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
@@ -174,7 +176,7 @@ export function AppShell() {
       id: bubble.gatewaySessionId,
       path: "",
       cwd: bubble.cwd,
-      name: `Bubble: ${bubble.templateName}`,
+      name: bubble.name || `Bubble: ${bubble.templateName}`,
       created: bubble.createdAt,
       modified: bubble.createdAt,
       messageCount: 0,
@@ -300,6 +302,16 @@ export function AppShell() {
             icon: (
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" /><circle cx="12" cy="12" r="4" /><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="2" y1="12" x2="6" y2="12" /><line x1="18" y1="12" x2="22" y2="12" />
+              </svg>
+            ),
+          },
+          {
+            label: "Hosts",
+            onClick: () => setHostsConfigOpen(true),
+            disabled: false,
+            icon: (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="2" width="20" height="8" rx="2" /><rect x="2" y="14" width="20" height="8" rx="2" /><circle cx="6" cy="6" r="1" /><circle cx="6" cy="18" r="1" />
               </svg>
             ),
           },
@@ -687,6 +699,9 @@ export function AppShell() {
         onClose={() => setBubbleCreateOpen(false)}
         onBubbleCreated={(bubble: Bubble) => { setBubbleCreateOpen(false); handleBubbleCreated(bubble); }}
       />
+    )}
+    {hostsConfigOpen && (
+      <HostsConfig onClose={() => setHostsConfigOpen(false)} />
     )}
     </>
   );

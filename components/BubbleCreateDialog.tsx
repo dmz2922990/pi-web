@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import type { BubbleTemplate, Bubble } from "@/lib/bubble-types";
+import type { HostConfig } from "@/lib/host-types";
 
 interface ModelOption {
 	id: string;
@@ -20,12 +21,16 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 	const [selectedTemplate, setSelectedTemplate] = useState<BubbleTemplate | null>(null);
 	const [envValues, setEnvValues] = useState<Record<string, string>>({});
 	const [message, setMessage] = useState("");
+	const [bubbleName, setBubbleName] = useState("");
 	const [creating, setCreating] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [models, setModels] = useState<ModelOption[]>([]);
 	const [selectedModel, setSelectedModel] = useState<string>("");
 	const [defaultModelKey, setDefaultModelKey] = useState<string>("");
+	const [hosts, setHosts] = useState<HostConfig[]>([]);
+	const [defaultHostId, setDefaultHostId] = useState<string>("local");
+	const [roleHostOverrides, setRoleHostOverrides] = useState<Record<string, string>>({});
 
 	useEffect(() => {
 		fetch("/api/bubbles/templates")
@@ -59,10 +64,18 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 				}
 			})
 			.catch(() => {});
-	}, []);
+
+			fetch("/api/hosts")
+				.then((r) => r.json())
+				.then((data: { hosts?: HostConfig[] }) => {
+					setHosts(data.hosts ?? []);
+				})
+				.catch(() => {});
+		}, []);
 
 	const handleTemplateSelect = useCallback((template: BubbleTemplate) => {
 		setSelectedTemplate(template);
+			setBubbleName(template.name);
 		const defaults: Record<string, string> = {};
 		if (template.environment) {
 			for (const field of template.environment) {
@@ -93,15 +106,24 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 				? { provider: modelParts[0], modelId: modelParts[1] }
 				: undefined;
 
+				// Build host selections: per-role override or global default
+				const hostSelections: Record<string, string> = {};
+				for (const role of selectedTemplate.roles) {
+					hostSelections[role.name] = roleHostOverrides[role.name] ?? defaultHostId;
+				}
+
 			const res = await fetch("/api/bubbles", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
+
 				body: JSON.stringify({
 					templateName: selectedTemplate.name,
+					name: bubbleName.trim() || selectedTemplate.name,
 					cwd,
 					environment: envValues,
 					message: message.trim() || undefined,
 					model: modelObj,
+					hostSelections,
 				}),
 			});
 
@@ -231,6 +253,27 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 								</span>
 							</div>
 
+							{/* Bubble name */}
+							<div style={{ marginBottom: 14 }}>
+								<label style={{
+									display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 3,
+								}}>
+									Bubble name:
+								</label>
+								<input
+									type="text"
+									value={bubbleName}
+									onChange={(e) => setBubbleName(e.target.value)}
+									placeholder="Name for this bubble..."
+									style={{
+										width: "100%", padding: "6px 10px",
+										background: "var(--bg)", border: "1px solid var(--border)",
+										borderRadius: 7, color: "var(--text)", fontSize: 12,
+										outline: "none", boxSizing: "border-box",
+									}}
+								/>
+							</div>
+
 							{/* Model selector */}
 							{models.length > 0 && (
 								<div style={{ marginBottom: 14 }}>
@@ -317,21 +360,68 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 								/>
 							</div>
 
-							{/* Roles preview */}
+							{/* Default execution host */}
+							{hosts.length > 0 && (
+								<div style={{ marginBottom: 14 }}>
+									<label style={{
+										display: "block", fontSize: 11, color: "var(--text-muted)", marginBottom: 3,
+									}}>
+										Default execution host:
+									</label>
+									<select
+										value={defaultHostId}
+										onChange={(e) => setDefaultHostId(e.target.value)}
+										style={{
+											width: "100%", padding: "6px 10px",
+											background: "var(--bg)", border: "1px solid var(--border)",
+											borderRadius: 7, color: "var(--text)", fontSize: 12,
+											outline: "none", boxSizing: "border-box",
+										}}
+									>
+										<option value="local">Local (default)</option>
+										{hosts.map((h) => (
+											<option key={h.id} value={h.id}>{h.name} ({h.host})</option>
+										))}
+									</select>
+								</div>
+							)}
+
+							{/* Workers with host selection */}
 							<div style={{
 								fontSize: 11, color: "var(--text-dim)",
 								padding: "8px 10px", background: "var(--bg)",
 								borderRadius: 7, border: "1px solid var(--border)",
 							}}>
-								<div style={{ marginBottom: 4, color: "var(--text-muted)" }}>
+								<div style={{ marginBottom: 6, color: "var(--text-muted)" }}>
 									Workers ({selectedTemplate.roles.length}):
 								</div>
 								{selectedTemplate.roles.map((r) => (
-									<div key={r.name} style={{ display: "flex", gap: 6 }}>
-										<span style={{ color: "var(--text)" }}>{r.label}</span>
+									<div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+										<span style={{ color: "var(--text)", minWidth: 70 }}>{r.label}</span>
 										<span style={{ color: "var(--text-dim)" }}>
 											[{r.tools.join(", ")}]
 										</span>
+										{hosts.length > 0 && (
+											<select
+												value={roleHostOverrides[r.name] ?? ""}
+												onChange={(e) => setRoleHostOverrides((prev) => ({
+													...prev,
+													[r.name]: e.target.value,
+												}))}
+												style={{
+													marginLeft: "auto", padding: "3px 6px",
+													background: "var(--bg-hover)", border: "1px solid var(--border)",
+													borderRadius: 5, color: "var(--text)", fontSize: 10,
+													outline: "none",
+												}}
+											>
+												<option value="">Default</option>
+												<option value="local">Local</option>
+												{hosts.map((h) => (
+													<option key={h.id} value={h.id}>{h.name}</option>
+												))}
+											</select>
+										)}
 									</div>
 								))}
 							</div>

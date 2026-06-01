@@ -1,8 +1,10 @@
 import { defineTool, createAgentSession, SessionManager, getAgentDir, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { AgentSessionWrapper, startRpcSession, getRpcSession } from "./rpc-manager";
 import { cacheSessionPath } from "./session-reader";
-import type { Bubble, BubbleTemplate, WorkerResult } from "./bubble-types";
+import type { Bubble, BubbleTemplate, SshConfig, WorkerResult } from "./bubble-types";
 import { getBubble, updateBubble, loadTemplate } from "./bubble-store";
+import { SshConnection } from "./ssh-operations";
+import { createSshTools } from "./ssh-tool-factory";
 
 // --- Registry ---
 
@@ -24,6 +26,7 @@ export class BubbleManager {
 	private template: BubbleTemplate;
 	private gatewayWrapper: AgentSessionWrapper | null = null;
 	private workerWrappers: Map<string, AgentSessionWrapper> = new Map();
+	private sshConnections: SshConnection[] = [];
 
 	constructor(bubble: Bubble, template: BubbleTemplate) {
 		this.bubble = bubble;
@@ -33,51 +36,10 @@ export class BubbleManager {
 	async start(initialMessage?: string, runtimeModel?: { provider: string; modelId: string }): Promise<void> {
 		const cwd = this.bubble.cwd;
 		const agentDir = getAgentDir();
-		const registry = (globalThis as Record<string, unknown>).__piSessions as
-			| Map<string, AgentSessionWrapper>
-			| undefined;
 
-		// 1. Create worker sessions with custom system prompts via DefaultResourceLoader
+		// 1. Create worker sessions
 		for (const role of this.template.roles) {
-			const interpolatedPrompt = this.interpolateEnv(role.systemPrompt);
-
-			console.log(`[bubble] Worker '${role.name}' prompt:`, interpolatedPrompt.slice(0, 200));
-
-			const workerLoader = new DefaultResourceLoader({
-				cwd,
-				agentDir,
-				systemPromptOverride: () => interpolatedPrompt,
-				appendSystemPromptOverride: () => [],
-			});
-			await workerLoader.reload();
-
-			console.log(`[bubble] Worker '${role.name}' loader.getSystemPrompt():`,
-				workerLoader.getSystemPrompt()?.slice(0, 200));
-
-			const workerSessionManager = SessionManager.create(cwd, undefined);
-			const { session: workerInner } = await createAgentSession({
-				cwd,
-				agentDir,
-				resourceLoader: workerLoader,
-				sessionManager: workerSessionManager,
-				tools: role.tools,
-			});
-
-			console.log(`[bubble] Worker '${role.name}' final systemPrompt:`,
-				workerInner.agent.state.systemPrompt?.slice(0, 200));
-
-			const wrapper = new AgentSessionWrapper(workerInner);
-			wrapper.start();
-
-			const realSessionId = workerInner.sessionId as string;
-			const realSessionFile = workerInner.sessionFile as string | undefined;
-			if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
-
-			wrapper.onDestroy(() => registry?.delete(realSessionId));
-			registry?.set(realSessionId, wrapper);
-
-			this.workerWrappers.set(realSessionId, wrapper);
-			this.bubble.workers.push({ roleName: role.name, sessionId: realSessionId });
+			await this.createWorker(role);
 		}
 
 		// 2. Build custom tools for gateway
@@ -87,16 +49,10 @@ export class BubbleManager {
 		const submitResultTool = this.createSubmitResultTool();
 		const customTools = [...invokeTools, submitResultTool];
 
-		// 3. Create gateway session with custom system prompt via DefaultResourceLoader
-		// Pass custom tool names as `tools` so the SDK's allowedToolNames filter
-		// permits ONLY our invoke_* + submit_result tools and blocks all built-in tools.
-		// (tools: [] creates new Set([]) which blocks EVERYTHING including customTools)
+		// 3. Create gateway session
 		const customToolNames = customTools.map((t) => t.name);
 		const sessionManager = SessionManager.create(cwd, undefined);
 		const gatewayPrompt = this.interpolateEnv(this.template.gateway.systemPrompt);
-
-		console.log("[bubble] Gateway prompt:", gatewayPrompt.slice(0, 200));
-		console.log("[bubble] Custom tool names:", customToolNames);
 
 		const gatewayLoader = new DefaultResourceLoader({
 			cwd,
@@ -115,10 +71,6 @@ export class BubbleManager {
 			customTools,
 		});
 
-		console.log("[bubble] Gateway system prompt after creation:",
-			gatewayInner.agent.state.systemPrompt?.slice(0, 200));
-		console.log("[bubble] Gateway active tools:", gatewayInner.getActiveToolNames());
-
 		// Apply model: runtime selection takes priority over template definition
 		const modelSpec = runtimeModel ?? this.template.gateway.model;
 		if (modelSpec) {
@@ -132,7 +84,11 @@ export class BubbleManager {
 		}
 
 		// Wrap gateway in AgentSessionWrapper and register in global session registry
-		const gwWrapper = new AgentSessionWrapper(gatewayInner);
+		const registry = (globalThis as Record<string, unknown>).__piSessions as
+			| Map<string, AgentSessionWrapper>
+			| undefined;
+
+		const gwWrapper = new AgentSessionWrapper(gatewayInner, { noIdleTimeout: true });
 		gwWrapper.start();
 
 		const gwSessionId = gatewayInner.sessionId as string;
@@ -157,6 +113,107 @@ export class BubbleManager {
 		// 6. Send initial message if provided
 		if (initialMessage) {
 			gatewayInner.prompt(initialMessage).catch(() => {});
+		}
+	}
+
+	private async createWorker(role: BubbleTemplate["roles"][number]): Promise<string> {
+		const cwd = this.bubble.cwd;
+		const agentDir = getAgentDir();
+		const registry = (globalThis as Record<string, unknown>).__piSessions as
+			| Map<string, AgentSessionWrapper>
+			| undefined;
+
+		const interpolatedPrompt = this.interpolateEnv(role.systemPrompt);
+
+		const workerLoader = new DefaultResourceLoader({
+			cwd,
+			agentDir,
+			systemPromptOverride: () => interpolatedPrompt,
+			appendSystemPromptOverride: () => [],
+		});
+		await workerLoader.reload();
+
+		const workerSessionManager = SessionManager.create(cwd, undefined);
+
+		let workerInner: Awaited<ReturnType<typeof createAgentSession>>["session"];
+
+		if (role.executionMode === "ssh" && role.ssh) {
+			const sshConfig = this.interpolateSshConfig(role.ssh);
+			const sshConn = new SshConnection(sshConfig);
+			await sshConn.connect();
+			this.sshConnections.push(sshConn);
+
+			const workerCwd = sshConfig.remoteCwd ?? cwd;
+			const sshToolInstances = createSshTools(workerCwd, sshConn);
+			const sshToolNames = sshToolInstances.map((t) => t.name);
+
+			const result = await createAgentSession({
+				cwd: workerCwd,
+				agentDir,
+				resourceLoader: workerLoader,
+				sessionManager: workerSessionManager,
+				noTools: "builtin",
+				tools: sshToolNames as unknown as string[],
+				customTools: sshToolInstances,
+			});
+			workerInner = result.session;
+		} else {
+			const result = await createAgentSession({
+				cwd,
+				agentDir,
+				resourceLoader: workerLoader,
+				sessionManager: workerSessionManager,
+				tools: role.tools,
+			});
+			workerInner = result.session;
+		}
+
+		const wrapper = new AgentSessionWrapper(workerInner, { noIdleTimeout: true });
+		wrapper.start();
+
+		const realSessionId = workerInner.sessionId as string;
+		const realSessionFile = workerInner.sessionFile as string | undefined;
+		if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
+
+		wrapper.onDestroy(() => registry?.delete(realSessionId));
+		registry?.set(realSessionId, wrapper);
+
+		this.workerWrappers.set(realSessionId, wrapper);
+
+		// Update or add the worker entry in bubble.workers
+		const existingIdx = this.bubble.workers.findIndex((w) => w.roleName === role.name);
+		if (existingIdx >= 0) {
+			this.bubble.workers[existingIdx].sessionId = realSessionId;
+		} else {
+			this.bubble.workers.push({ roleName: role.name, sessionId: realSessionId });
+		}
+
+		return realSessionId;
+	}
+
+	private async ensureWorker(roleName: string): Promise<AgentSessionWrapper | null> {
+		const role = this.template.roles.find((r) => r.name === roleName);
+		if (!role) return null;
+
+		const workerEntry = this.bubble.workers.find((w) => w.roleName === roleName);
+		if (workerEntry) {
+			const existing = this.workerWrappers.get(workerEntry.sessionId);
+			if (existing?.isAlive()) return existing;
+
+			// Clean up dead wrapper
+			if (existing) {
+				this.workerWrappers.delete(workerEntry.sessionId);
+			}
+		}
+
+		// Recreate the worker
+		try {
+			await this.createWorker(role);
+			updateBubble(this.bubble.id, { workers: this.bubble.workers });
+			const entry = this.bubble.workers.find((w) => w.roleName === roleName);
+			return entry ? this.workerWrappers.get(entry.sessionId) ?? null : null;
+		} catch {
+			return null;
 		}
 	}
 
@@ -203,6 +260,16 @@ export class BubbleManager {
 
 		this.workerWrappers.clear();
 		this.gatewayWrapper = null;
+
+		for (const conn of this.sshConnections) {
+			try {
+				conn.disconnect();
+			} catch {
+				// Ignore errors during cleanup
+			}
+		}
+		this.sshConnections = [];
+
 		delete getManagers()[this.bubble.id];
 	}
 
@@ -212,6 +279,21 @@ export class BubbleManager {
 		return prompt.replace(/\{env\.(\w+)\}/g, (_, key: string) => {
 			return this.bubble.environment[key] ?? "";
 		});
+	}
+
+	private interpolateSshConfig(config: SshConfig): SshConfig {
+		const interpolate = (value: string | undefined): string | undefined =>
+			value?.replace(/\{env\.(\w+)\}/g, (_, key: string) =>
+				this.bubble.environment[key] ?? "");
+
+		return {
+			host: interpolate(config.host) ?? config.host,
+			port: config.port,
+			user: interpolate(config.user),
+			privateKey: interpolate(config.privateKey),
+			password: interpolate(config.password),
+			remoteCwd: interpolate(config.remoteCwd),
+		};
 	}
 
 	private createInvokeTool(role: BubbleTemplate["roles"][number]) {
@@ -232,26 +314,11 @@ export class BubbleManager {
 			promptSnippet: `invoke_${role.name}: Call the ${role.label} worker`,
 			executionMode: "sequential" as const,
 			execute: async (_toolCallId, params, _signal, onUpdate, _ctx) => {
-				// Find the worker wrapper for this role
-				const workerEntry = manager.bubble.workers.find(
-					(w) => w.roleName === role.name,
-				);
-				if (!workerEntry) {
+				const wrapper = await manager.ensureWorker(role.name);
+				if (!wrapper) {
 					const result: WorkerResult = {
 						status: "failed",
-						summary: `No worker found for role '${role.name}'`,
-					};
-					return {
-						content: [{ type: "text" as const, text: JSON.stringify(result) }],
-						details: {},
-					};
-				}
-
-				const wrapper = manager.workerWrappers.get(workerEntry.sessionId);
-				if (!wrapper || !wrapper.isAlive()) {
-					const result: WorkerResult = {
-						status: "failed",
-						summary: `Worker '${role.label}' session is not available`,
+						summary: `Failed to initialize worker '${role.label}'. Please try calling this tool again.`,
 					};
 					return {
 						content: [{ type: "text" as const, text: JSON.stringify(result) }],
@@ -433,6 +500,7 @@ export async function startBubble(
 	bubbleId: string,
 	message?: string,
 	model?: { provider: string; modelId: string },
+	templateOverride?: BubbleTemplate,
 ): Promise<BubbleManager> {
 	const existing = getManagers()[bubbleId];
 	if (existing) return existing;
@@ -440,7 +508,7 @@ export async function startBubble(
 	const bubble = getBubble(bubbleId);
 	if (!bubble) throw new Error(`Bubble ${bubbleId} not found`);
 
-	const template = loadTemplate(bubble.templateName);
+	const template = templateOverride ?? loadTemplate(bubble.templateName);
 	if (!template) throw new Error(`Template ${bubble.templateName} not found`);
 
 	const manager = new BubbleManager(bubble, template);

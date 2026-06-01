@@ -244,6 +244,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
 
   const handleAgentEvent = useCallback((event: AgentEvent) => {
     switch (event.type) {
+      case "connected": {
+        if (event.isStreaming === false) {
+          setAgentRunning(false);
+          setAgentPhase(null);
+          dispatch({ type: "end" });
+        }
+        break;
+      }
       case "agent_start":
         setAgentRunning(true);
         setAgentPhase({ kind: "waiting_model" });

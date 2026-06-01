@@ -24,8 +24,11 @@ export class AgentSessionWrapper {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private onDestroyCallback: (() => void) | null = null;
   private _alive = true;
+  private readonly disableIdleTimeout: boolean;
 
-  constructor(public readonly inner: AgentSessionLike) {}
+  constructor(public readonly inner: AgentSessionLike, options?: { noIdleTimeout?: boolean }) {
+    this.disableIdleTimeout = options?.noIdleTimeout === true;
+  }
 
   get sessionId(): string {
     return this.inner.sessionId;
@@ -48,6 +51,7 @@ export class AgentSessionWrapper {
   }
 
   private resetIdleTimer(): void {
+    if (this.disableIdleTimeout) return;
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = setTimeout(() => this.destroy(), 10 * 60 * 1000);
   }
