@@ -258,6 +258,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     loadBubbles();
   }, [loadSessions, loadBubbles, refreshKey]);
 
+  // Poll bubble status while any bubble is running
+  useEffect(() => {
+    const hasRunning = bubbles.some((b) => b.status === "running");
+    if (!hasRunning) return;
+    const id = setInterval(loadBubbles, 3000);
+    return () => clearInterval(id);
+  }, [bubbles, loadBubbles]);
+
   useEffect(() => {
     if (explorerRefreshKey !== undefined) setExplorerKey((k) => k + 1);
   }, [explorerRefreshKey]);

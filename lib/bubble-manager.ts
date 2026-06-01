@@ -1,8 +1,8 @@
 import { defineTool, createAgentSession, SessionManager, getAgentDir, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { AgentSessionWrapper, startRpcSession, getRpcSession } from "./rpc-manager";
-import { cacheSessionPath } from "./session-reader";
-import type { Bubble, BubbleTemplate, SshConfig, WorkerResult } from "./bubble-types";
-import { getBubble, updateBubble, loadTemplate } from "./bubble-store";
+import { cacheSessionPath, resolveSessionPath } from "./session-reader";
+import type { Bubble, BubbleTemplate, BubbleWorker, SshConfig, WorkerResult } from "./bubble-types";
+import { getBubble, updateBubble, loadTemplate, listBubbles } from "./bubble-store";
 import { SshConnection } from "./ssh-operations";
 import { createSshTools } from "./ssh-tool-factory";
 
@@ -27,6 +27,7 @@ export class BubbleManager {
 	private gatewayWrapper: AgentSessionWrapper | null = null;
 	private workerWrappers: Map<string, AgentSessionWrapper> = new Map();
 	private sshConnections: SshConnection[] = [];
+	private consecutiveFailures: Map<string, number> = new Map();
 
 	constructor(bubble: Bubble, template: BubbleTemplate) {
 		this.bubble = bubble;
@@ -100,10 +101,12 @@ export class BubbleManager {
 
 		this.gatewayWrapper = gwWrapper;
 		this.bubble.gatewaySessionId = gwSessionId;
+		if (gwSessionFile) this.bubble.gatewaySessionFile = gwSessionFile;
 
 		// 4. Persist bubble with session IDs
 		updateBubble(this.bubble.id, {
 			gatewaySessionId: gwSessionId,
+			gatewaySessionFile: gwSessionFile,
 			workers: this.bubble.workers,
 		});
 
@@ -181,11 +184,19 @@ export class BubbleManager {
 		this.workerWrappers.set(realSessionId, wrapper);
 
 		// Update or add the worker entry in bubble.workers
+		const isRemote = role.executionMode === "ssh";
 		const existingIdx = this.bubble.workers.findIndex((w) => w.roleName === role.name);
+		const workerEntry = {
+			roleName: role.name,
+			sessionId: realSessionId,
+			isRemote,
+			sessionFile: realSessionFile,
+			hostId: role.hostId,
+		};
 		if (existingIdx >= 0) {
-			this.bubble.workers[existingIdx].sessionId = realSessionId;
+			this.bubble.workers[existingIdx] = workerEntry;
 		} else {
-			this.bubble.workers.push({ roleName: role.name, sessionId: realSessionId });
+			this.bubble.workers.push(workerEntry);
 		}
 
 		return realSessionId;
@@ -233,28 +244,36 @@ export class BubbleManager {
 		return this.gatewayWrapper;
 	}
 
+	setGatewayWrapper(wrapper: AgentSessionWrapper): void {
+		this.gatewayWrapper = wrapper;
+	}
+
+	addWorkerWrapper(sessionId: string, wrapper: AgentSessionWrapper): void {
+		this.workerWrappers.set(sessionId, wrapper);
+	}
+
+	addSshConnection(conn: SshConnection): void {
+		this.sshConnections.push(conn);
+	}
+
 	getWorkerWrapper(sessionId: string): AgentSessionWrapper | null {
 		return this.workerWrappers.get(sessionId) ?? null;
 	}
 
 	async destroy(): Promise<void> {
-		try {
-			if (this.gatewayWrapper?.isAlive()) {
-				await this.gatewayWrapper.inner.abort();
-				this.gatewayWrapper.destroy();
-			}
-		} catch {
-			// Ignore errors during cleanup
+		// Abort + destroy synchronously; abort() runs in background to avoid
+		// hanging when a worker is stuck on SSH I/O.
+		const aborts: Promise<void>[] = [];
+
+		if (this.gatewayWrapper?.isAlive()) {
+			aborts.push(this.gatewayWrapper.inner.abort().catch(() => {}));
+			this.gatewayWrapper.destroy();
 		}
 
 		for (const [_, wrapper] of this.workerWrappers) {
-			try {
-				if (wrapper.isAlive()) {
-					await wrapper.inner.abort();
-					wrapper.destroy();
-				}
-			} catch {
-				// Ignore errors during cleanup
+			if (wrapper.isAlive()) {
+				aborts.push(wrapper.inner.abort().catch(() => {}));
+				wrapper.destroy();
 			}
 		}
 
@@ -262,26 +281,25 @@ export class BubbleManager {
 		this.gatewayWrapper = null;
 
 		for (const conn of this.sshConnections) {
-			try {
-				conn.disconnect();
-			} catch {
-				// Ignore errors during cleanup
-			}
+			try { conn.disconnect(); } catch { /* ignore */ }
 		}
 		this.sshConnections = [];
 
 		delete getManagers()[this.bubble.id];
+
+		// Let background aborts settle, but don't block destroy() on them
+		Promise.all(aborts).catch(() => {});
 	}
 
 	// --- Private Helpers ---
 
-	private interpolateEnv(prompt: string): string {
+	interpolateEnv(prompt: string): string {
 		return prompt.replace(/\{env\.(\w+)\}/g, (_, key: string) => {
 			return this.bubble.environment[key] ?? "";
 		});
 	}
 
-	private interpolateSshConfig(config: SshConfig): SshConfig {
+	interpolateSshConfig(config: SshConfig): SshConfig {
 		const interpolate = (value: string | undefined): string | undefined =>
 			value?.replace(/\{env\.(\w+)\}/g, (_, key: string) =>
 				this.bubble.environment[key] ?? "");
@@ -296,7 +314,7 @@ export class BubbleManager {
 		};
 	}
 
-	private createInvokeTool(role: BubbleTemplate["roles"][number]) {
+	createInvokeTool(role: BubbleTemplate["roles"][number]) {
 		const manager = this;
 
 		return defineTool({
@@ -314,19 +332,25 @@ export class BubbleManager {
 			promptSnippet: `invoke_${role.name}: Call the ${role.label} worker`,
 			executionMode: "sequential" as const,
 			execute: async (_toolCallId, params, _signal, onUpdate, _ctx) => {
+				const timeoutMs = (role.timeoutMinutes ?? 10) * 60_000;
+				const failures = manager.consecutiveFailures.get(role.name) ?? 0;
+
+				// After 3 consecutive failures, force-recreate and try once more
+				// but return a non-retryable error to stop Gateway from looping
+				const forceRecreate = failures >= 3;
+
 				const wrapper = await manager.ensureWorker(role.name);
 				if (!wrapper) {
-					const result: WorkerResult = {
-						status: "failed",
-						summary: `Failed to initialize worker '${role.label}'. Please try calling this tool again.`,
-					};
 					return {
-						content: [{ type: "text" as const, text: JSON.stringify(result) }],
+						content: [{ type: "text" as const, text: JSON.stringify({
+							status: "failed",
+							summary: `Worker '${role.label}' could not be created. The session may have crashed. Please try again or use submit_result to end the workflow.`,
+							error: "Session creation failed",
+							retryable: true,
+						} satisfies WorkerResult) }],
 						details: {},
 					};
 				}
-
-				const timeoutMs = (role.timeoutMinutes ?? 10) * 60_000;
 
 				const result = await manager.executeWorker(
 					wrapper,
@@ -335,7 +359,33 @@ export class BubbleManager {
 					timeoutMs,
 					role.label,
 					onUpdate,
+					0,
 				);
+
+				if (result.status === "success") {
+					manager.consecutiveFailures.delete(role.name);
+				} else {
+					manager.consecutiveFailures.set(role.name, failures + 1);
+
+					// Force-recreate the worker on failure so next invocation is clean
+					try {
+						const entry = manager.bubble.workers.find((w) => w.roleName === role.name);
+						if (entry) {
+							const dead = manager.workerWrappers.get(entry.sessionId);
+							if (dead) {
+								try { await dead.inner.abort(); } catch { /* ignore */ }
+								dead.destroy();
+								manager.workerWrappers.delete(entry.sessionId);
+							}
+						}
+					} catch { /* ignore */ }
+
+					// After repeated failures, tell Gateway to stop retrying
+					if (forceRecreate || failures + 1 >= 3) {
+						result.retryable = false;
+						result.summary += ` STOP RETRYING: This worker has failed ${failures + 1} times. Use submit_result to end the workflow, or try a different approach.`;
+					}
+				}
 
 				return {
 					content: [{ type: "text" as const, text: JSON.stringify(result) }],
@@ -357,10 +407,13 @@ export class BubbleManager {
 					details: unknown;
 			  }) => void)
 			| undefined,
+		attempt: number,
 	): Promise<WorkerResult> {
 		const fullPrompt = context
 			? `${task}\n\nContext from previous steps:\n${context}`
 			: task;
+
+		const attemptLabel = attempt > 0 ? ` (retry #${attempt})` : "";
 
 		return new Promise<WorkerResult>((resolve) => {
 			let resolved = false;
@@ -368,7 +421,15 @@ export class BubbleManager {
 			const timer = setTimeout(() => {
 				if (!resolved) {
 					resolved = true;
-					resolve({ status: "failed", summary: `${roleLabel} timed out` });
+					resolve({
+						status: "failed",
+						summary: `${roleLabel} timed out after ${timeoutMs / 1000}s${attemptLabel}`,
+						error: `Worker did not respond within ${timeoutMs / 1000} seconds. The model API may be slow or unresponsive.`,
+						retryable: true,
+					});
+					// Cleanup in background — abort() may hang if the underlying tool is stuck on I/O
+					wrapper.inner.abort().catch(() => {});
+					try { wrapper.destroy(); } catch { /* ignore */ }
 				}
 			}, timeoutMs);
 
@@ -381,22 +442,40 @@ export class BubbleManager {
 					const result = this.extractWorkerResult(wrapper);
 					resolve(result);
 				}
+
+				if (event.type === "error" && !resolved) {
+					resolved = true;
+					clearTimeout(timer);
+					unsubscribe();
+					const errMsg = (event.error as string) || (event.message as string) || "Unknown error";
+					resolve({
+						status: "failed",
+						summary: `${roleLabel} encountered an error${attemptLabel}`,
+						error: errMsg,
+						retryable: true,
+					});
+				}
 			});
 
-			// Stream progress updates
 			onUpdate?.({
 				content: [
-					{ type: "text", text: `${roleLabel} is working on: ${task.slice(0, 100)}...` },
+					{ type: "text", text: `${roleLabel}${attemptLabel} is working on: ${task.slice(0, 100)}...` },
 				],
 				details: { phase: "running", workerRole: roleLabel },
 			});
 
-			wrapper.inner.prompt(fullPrompt).catch(() => {
+			wrapper.inner.prompt(fullPrompt).catch((err) => {
 				if (!resolved) {
 					resolved = true;
 					clearTimeout(timer);
 					unsubscribe();
-					resolve({ status: "failed", summary: `${roleLabel} execution failed` });
+					const errMsg = err instanceof Error ? err.message : String(err);
+					resolve({
+						status: "failed",
+						summary: `${roleLabel} failed: ${errMsg || "unknown error"}`,
+						error: errMsg,
+						retryable: true,
+					});
 				}
 			});
 		});
@@ -444,7 +523,7 @@ export class BubbleManager {
 		return { status: "success", summary: "Worker completed" };
 	}
 
-	private createSubmitResultTool() {
+	createSubmitResultTool() {
 		const bubbleId = this.bubble.id;
 
 		return defineTool({
@@ -525,5 +604,157 @@ export async function stopBubble(bubbleId: string): Promise<void> {
 	const manager = getManagers()[bubbleId];
 	if (manager) {
 		await manager.destroy();
+	}
+}
+
+// --- Restore running bubbles after server restart ---
+
+let restorePromise: Promise<void> | null = null;
+
+export async function restoreRunningBubbles(): Promise<void> {
+	if (restorePromise) return restorePromise;
+	restorePromise = doRestore();
+	try { await restorePromise; } finally { restorePromise = null; }
+}
+
+async function doRestore(): Promise<void> {
+	const managers = getManagers();
+	if (Object.keys(managers).length > 0) return; // Already restored
+
+	const bubbles = listBubbles().filter((b) => b.status === "running");
+	if (bubbles.length === 0) return;
+
+	const registry = (globalThis as Record<string, unknown>).__piSessions as
+		| Map<string, AgentSessionWrapper>
+		| undefined;
+	if (!registry) return;
+
+	for (const bubble of bubbles) {
+		const template = loadTemplate(bubble.templateName);
+		if (!template) continue;
+
+		const manager = new BubbleManager(bubble, template);
+
+		// Restore worker sessions
+		for (const worker of bubble.workers) {
+			const role = template.roles.find((r) => r.name === worker.roleName);
+			if (!role) continue;
+
+			const sessionFile = worker.sessionFile ?? await resolveSessionPath(worker.sessionId);
+			if (!sessionFile) continue;
+
+			// Resolve SSH config: hostId (from bubble.json) → lookup hosts store → SshConfig
+			let workerSsh: SshConfig | undefined;
+			if (worker.hostId && worker.hostId !== "local") {
+				const { getHost } = await import("./host-store");
+				const hostConfig = getHost(worker.hostId);
+				if (hostConfig) {
+					workerSsh = {
+						host: hostConfig.host,
+						port: hostConfig.port,
+						user: hostConfig.user,
+						password: hostConfig.password,
+						privateKey: hostConfig.privateKey,
+						remoteCwd: hostConfig.remoteCwd,
+					};
+				}
+			}
+			// Fallback: template's role-level SSH config
+			if (!workerSsh && role.executionMode === "ssh" && role.ssh) {
+				workerSsh = role.ssh;
+			}
+
+			try {
+				const workerSessionManager = SessionManager.open(sessionFile, undefined);
+				const workerLoader = new DefaultResourceLoader({
+					cwd: bubble.cwd,
+					agentDir: getAgentDir(),
+					systemPromptOverride: () => manager.interpolateEnv(role.systemPrompt),
+					appendSystemPromptOverride: () => [],
+				});
+				await workerLoader.reload();
+
+				let workerInner: Awaited<ReturnType<typeof createAgentSession>>["session"];
+
+				if (workerSsh) {
+					const sshConn = new SshConnection(workerSsh);
+					await sshConn.connect();
+					manager.addSshConnection(sshConn);
+
+					const workerCwd = workerSsh.remoteCwd ?? bubble.cwd;
+					const sshToolInstances = createSshTools(workerCwd, sshConn);
+					const sshToolNames = sshToolInstances.map((t) => t.name);
+
+					const result = await createAgentSession({
+						cwd: workerCwd,
+						agentDir: getAgentDir(),
+						resourceLoader: workerLoader,
+						sessionManager: workerSessionManager,
+						noTools: "builtin",
+						tools: sshToolNames as unknown as string[],
+						customTools: sshToolInstances,
+					});
+					workerInner = result.session;
+				} else {
+					const result = await createAgentSession({
+						cwd: bubble.cwd,
+						agentDir: getAgentDir(),
+						resourceLoader: workerLoader,
+						sessionManager: workerSessionManager,
+						tools: role.tools,
+					});
+					workerInner = result.session;
+				}
+
+				const wrapper = new AgentSessionWrapper(workerInner, { noIdleTimeout: true });
+				wrapper.start();
+				cacheSessionPath(workerInner.sessionId as string, sessionFile);
+				wrapper.onDestroy(() => registry.delete(workerInner.sessionId as string));
+				registry.set(workerInner.sessionId as string, wrapper);
+				manager.addWorkerWrapper(workerInner.sessionId as string, wrapper);
+			} catch {
+				// Worker restore failed
+			}
+		}
+
+		// Restore gateway session
+		const gwSessionFile = bubble.gatewaySessionFile ?? await resolveSessionPath(bubble.gatewaySessionId);
+		if (gwSessionFile) {
+			try {
+				const gwSessionManager = SessionManager.open(gwSessionFile, undefined);
+				const gwLoader = new DefaultResourceLoader({
+					cwd: bubble.cwd,
+					agentDir: getAgentDir(),
+					systemPromptOverride: () => manager.interpolateEnv(template.gateway.systemPrompt),
+					appendSystemPromptOverride: () => [],
+				});
+				await gwLoader.reload();
+
+				const invokeTools = template.roles.map((role) => manager.createInvokeTool(role));
+				const submitResultTool = manager.createSubmitResultTool();
+				const customTools = [...invokeTools, submitResultTool];
+				const customToolNames = customTools.map((t) => t.name);
+
+				const { session: gwInner } = await createAgentSession({
+					cwd: bubble.cwd,
+					agentDir: getAgentDir(),
+					resourceLoader: gwLoader,
+					sessionManager: gwSessionManager,
+					tools: customToolNames as unknown as string[],
+					customTools,
+				});
+
+				const gwWrapper = new AgentSessionWrapper(gwInner, { noIdleTimeout: true });
+				gwWrapper.start();
+				cacheSessionPath(gwInner.sessionId as string, gwSessionFile);
+				gwWrapper.onDestroy(() => registry.delete(gwInner.sessionId as string));
+				registry.set(gwInner.sessionId as string, gwWrapper);
+				manager.setGatewayWrapper(gwWrapper);
+			} catch {
+				// Gateway restore failed — bubble is partially restored
+			}
+		}
+
+		managers[bubble.id] = manager;
 	}
 }

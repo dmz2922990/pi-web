@@ -406,14 +406,14 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     }
   }, [isNew, newSessionCwd, newSessionModel, toolPreset, thinkingLevel, session, agentRunning, connectEvents, onSessionCreated]);
 
-  const handleAbort = useCallback(async () => {
+  const handleAbort = useCallback(() => {
     const sid = sessionIdRef.current;
     if (!sid) return;
-    try {
-      await sendAgentCommand(sid, { type: "abort" });
-    } catch (e) {
-      console.error("Failed to abort:", e);
-    }
+    // Update UI immediately — don't wait for server or SSE event
+    setAgentRunning(false);
+    setAgentPhase(null);
+    dispatch({ type: "end" });
+    sendAgentCommand(sid, { type: "abort" }).catch(() => {});
   }, []);
 
   const handleFork = useCallback(async (entryId: string) => {

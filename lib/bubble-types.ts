@@ -27,6 +27,7 @@ export interface BubbleRole {
 	timeoutMinutes?: number;
 	executionMode?: "local" | "ssh" | "remote";
 	ssh?: SshConfig;
+	hostId?: string;
 }
 
 export interface BubbleGateway {
@@ -49,6 +50,9 @@ export type BubbleStatus = "running" | "completed" | "failed";
 export interface BubbleWorker {
 	roleName: string;
 	sessionId: string;
+	isRemote?: boolean;
+	sessionFile?: string;
+	hostId?: string;
 }
 
 export interface BubbleResult {
@@ -63,6 +67,7 @@ export interface Bubble {
 	cwd: string;
 	status: BubbleStatus;
 	gatewaySessionId: string;
+	gatewaySessionFile?: string;
 	workers: BubbleWorker[];
 	environment: Record<string, string>;
 	createdAt: string;
@@ -105,5 +110,7 @@ export interface SubmitResultParams {
 export interface WorkerResult {
 	status: "success" | "failed";
 	summary: string;
+	error?: string;
+	retryable?: boolean;
 	files?: string[];
 }

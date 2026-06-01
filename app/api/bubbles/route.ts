@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createBubble, listBubbles, loadTemplate } from "@/lib/bubble-store";
-import { startBubble, getBubbleManager } from "@/lib/bubble-manager";
+import { startBubble, getBubbleManager, restoreRunningBubbles } from "@/lib/bubble-manager";
 import { getHost } from "@/lib/host-store";
 import type { BubbleTemplate, SshConfig } from "@/lib/bubble-types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+	await restoreRunningBubbles();
 	const bubbles = listBubbles();
 	const registry = (globalThis as Record<string, unknown>).__piSessions as
 		| Map<string, { inner: { isStreaming: boolean } }>
@@ -94,6 +95,7 @@ function applyHostSelections(
 		if (!hostConfig) continue;
 
 		role.executionMode = "ssh";
+		role.hostId = hostId;
 		role.ssh = {
 			host: hostConfig.host,
 			port: hostConfig.port,

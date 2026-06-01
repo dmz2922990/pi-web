@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import type { AgentMessage, SessionInfo, SessionTreeNode } from "@/lib/types";
 import { MessageView } from "./MessageView";
 import { ChatInput, type ChatInputHandle } from "./ChatInput";
@@ -109,6 +109,23 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
   });
 
   const { soundEnabled, onSoundToggle, playDoneSound } = useAudio();
+
+  // Track elapsed time when in "waiting_model" phase
+  const [waitStart, setWaitStart] = useState<number | null>(null);
+  const [waitElapsed, setWaitElapsed] = useState(0);
+  useEffect(() => {
+    if (agentPhase?.kind === "waiting_model" && waitStart === null) {
+      setWaitStart(Date.now());
+    } else if (agentPhase?.kind !== "waiting_model" && waitStart !== null) {
+      setWaitStart(null);
+      setWaitElapsed(0);
+    }
+  }, [agentPhase?.kind, waitStart]);
+  useEffect(() => {
+    if (waitStart === null) return;
+    const id = setInterval(() => setWaitElapsed(Math.floor((Date.now() - waitStart) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [waitStart]);
   const playDoneSoundRef = useRef(playDoneSound);
   playDoneSoundRef.current = playDoneSound;
   const soundEnabledRef = useRef(soundEnabled);
@@ -358,6 +375,11 @@ export function ChatWindow({ session, newSessionCwd, onAgentEnd, onSessionCreate
             {agentRunning && !streamState.streamingMessage && (
               <div className="py-2 text-[13px] text-text-muted">
                 <span className="animate-[pulse_1.5s_infinite]">{phaseLabel(agentPhase)}</span>
+                {agentPhase?.kind === "waiting_model" && waitElapsed > 3 && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: waitElapsed > 30 ? "#f59e0b" : "var(--text-dim)" }}>
+                    ({waitElapsed}s)
+                  </span>
+                )}
               </div>
             )}
 

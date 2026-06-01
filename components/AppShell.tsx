@@ -142,7 +142,7 @@ export function AppShell() {
     // Skip router.replace when restoring from URL — the param is already correct
     // and calling replace in production Next.js triggers a Suspense remount loop
     if (!isRestore) {
-      router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+      window.history.replaceState(null, "", `?session=${encodeURIComponent(session.id)}`);
     }
   }, [router]);
 
@@ -162,7 +162,7 @@ export function AppShell() {
     setNewSessionCwd(null);
     setSelectedSession(session);
     setRefreshKey((k) => k + 1);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
+    window.history.replaceState(null, "", `?session=${encodeURIComponent(session.id)}`);
   }, [router]);
 
   const handleAgentEnd = useCallback(() => {
@@ -186,7 +186,7 @@ export function AppShell() {
     setNewSessionCwd(null);
     setRefreshKey((k) => k + 1);
     setSessionKey((k) => k + 1);
-    router.replace(`?session=${encodeURIComponent(bubble.gatewaySessionId)}`, { scroll: false });
+    window.history.replaceState(null, "", `?session=${encodeURIComponent(bubble.gatewaySessionId)}`);
   }, [router]);
 
   const handleSessionForked = useCallback((newSessionId: string) => {
@@ -197,7 +197,7 @@ export function AppShell() {
       ...(prev ?? { path: "", cwd: "", created: "", modified: "", messageCount: 0, firstMessage: "" }),
       id: newSessionId,
     }));
-    router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
+    window.history.replaceState(null, "", `?session=${encodeURIComponent(newSessionId)}`);
   }, [router]);
 
   const handleInitialRestoreDone = useCallback(() => {
@@ -265,7 +265,17 @@ export function AppShell() {
         onOpenFile={handleOpenFile}
         explorerRefreshKey={explorerRefreshKey}
         onAtMention={handleAtMention}
-        onBubbleDeleted={() => { setRefreshKey((k) => k + 1); }}
+        onBubbleDeleted={() => {
+	            setRefreshKey((k) => k + 1);
+	            setSelectedSession((prev) => {
+	              if (!prev) return null;
+	              // The session path for bubble sessions is empty — if selected
+	              // session has no path and no name containing a known cwd, clear it.
+	              // Simpler: just clear if the session is a bubble session (path === "").
+	              if (prev.path === "") return null;
+	              return prev;
+	            });
+	          }}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([

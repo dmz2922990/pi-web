@@ -81,7 +81,8 @@ export class AgentSessionWrapper {
       }
 
       case "abort":
-        await this.inner.abort();
+        // Fire and forget — abort() may hang if the underlying tool is stuck on I/O
+        this.inner.abort().catch(() => {});
         return null;
 
       case "get_state": {

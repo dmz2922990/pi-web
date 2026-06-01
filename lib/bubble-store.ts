@@ -138,6 +138,7 @@ export function updateBubble(
 	patch: Partial<{
 		status: BubbleStatus;
 		gatewaySessionId: string;
+		gatewaySessionFile: string;
 		workers: Bubble["workers"];
 		completedAt: string;
 		result: BubbleResult;
