@@ -624,6 +624,17 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
 
+  // Parse invoke result for display below the collapsible box
+  const isInvoke = block.toolName.startsWith("invoke_");
+  const workerResult = useMemo<{ status: string; summary: string; error?: string } | null>(() => {
+    if (!isInvoke || !resultText) return null;
+    try {
+      const parsed = JSON.parse(resultText);
+      if (parsed && typeof parsed.status === "string" && typeof parsed.summary === "string") return parsed;
+    } catch { /* not JSON */ }
+    return null;
+  }, [isInvoke, resultText]);
+
   return (
     <div
       style={{
@@ -694,6 +705,54 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
           isError={isError}
         />
       )}
+
+      {/* ── Invoke result output — always visible ── */}
+      {workerResult && (
+        <InvokeResultOutput result={workerResult} roleName={block.toolName.replace(/^invoke_/, "")} />
+      )}
+    </div>
+  );
+}
+
+function InvokeResultOutput({ result, roleName }: { result: { status: string; summary: string; error?: string }; roleName: string }) {
+  const isSuccess = result.status === "success";
+  return (
+    <div
+      style={{
+        borderTop: isSuccess ? "1px solid rgba(34,197,94,0.2)" : "1px solid rgba(248,113,113,0.25)",
+        padding: "8px 10px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <span
+          style={{
+            display: "inline-block",
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: isSuccess ? "#16a34a" : "#f87171",
+            flexShrink: 0,
+          }}
+        />
+        <span style={{ fontSize: 11, fontWeight: 600, color: isSuccess ? "#16a34a" : "#f87171" }}>
+          {roleName} {isSuccess ? "completed" : "failed"}
+        </span>
+      </div>
+      {result.error && (
+        <div style={{ color: "#f87171", marginBottom: 6, fontSize: 12 }}>{result.error}</div>
+      )}
+      <div
+        style={{
+          color: "var(--text-muted)",
+          fontSize: 12,
+          lineHeight: 1.6,
+          maxHeight: 400,
+          overflow: "auto",
+        }}
+        className="markdown-body"
+      >
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{result.summary}</ReactMarkdown>
+      </div>
     </div>
   );
 }
