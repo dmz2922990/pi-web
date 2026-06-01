@@ -149,7 +149,8 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 				display: "flex", alignItems: "center", justifyContent: "center",
 				background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)",
 			}}
-			onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+			onMouseDown={(e) => { e.currentTarget.dataset.downTarget = e.target === e.currentTarget ? "1" : ""; }}
+		onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.downTarget === "1") onClose(); }}
 		>
 			<div
 				style={{

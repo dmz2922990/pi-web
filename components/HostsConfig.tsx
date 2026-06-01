@@ -208,8 +208,9 @@ export function HostsConfig({ onClose }: Props) {
 				background: "rgba(0,0,0,0.5)",
 				backdropFilter: "blur(4px)",
 			}}
+			onMouseDown={(e) => { e.currentTarget.dataset.downTarget = e.target === e.currentTarget ? "1" : ""; }}
 			onClick={(e) => {
-				if (e.target === e.currentTarget) onClose();
+				if (e.target === e.currentTarget && e.currentTarget.dataset.downTarget === "1") onClose();
 			}}
 		>
 			<div
