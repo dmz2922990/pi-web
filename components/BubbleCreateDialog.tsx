@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { BubbleTemplate, Bubble, WorkflowDefinition, WorkerDefinition } from "@/lib/bubble-types";
+import type { BubbleTemplate, Bubble, WorkflowDefinition, WorkerDefinition, BubbleEnvironmentField } from "@/lib/bubble-types";
 import type { HostConfig } from "@/lib/host-types";
 
 interface ModelOption {
@@ -17,6 +17,61 @@ interface Props {
 }
 
 type Page = "select" | "configure" | "manage-workers" | "manage-workflows";
+
+// Extract {env.KEY} references from text
+function extractEnvRefs(text: string): string[] {
+	const keys: string[] = [];
+	const re = /\{env\.([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
+	let m: RegExpExecArray | null;
+	while ((m = re.exec(text)) !== null) keys.push(m[1]);
+	return keys;
+}
+
+// Merge declared environment fields with auto-detected {env.KEY} references
+function getMergedEnvironment(wf: WorkflowDefinition, workers: WorkerDefinition[]): BubbleEnvironmentField[] {
+	const fields: BubbleEnvironmentField[] = [];
+	const seen = new Set<string>();
+
+	const add = (f: BubbleEnvironmentField) => {
+		if (!seen.has(f.key)) { seen.add(f.key); fields.push(f); }
+	};
+
+	// Declared workflow environment (highest priority, has labels/defaults)
+	for (const f of wf.environment ?? []) add(f);
+
+	// Declared worker environment
+	const uniqueWorkerNames = [...new Set(wf.steps.map((s) => s.worker))];
+	for (const wn of uniqueWorkerNames) {
+		const wk = workers.find((w) => w.name === wn);
+		for (const f of wk?.environment ?? []) add(f);
+	}
+
+	// Auto-detect from workflow gateway prompt
+	for (const key of extractEnvRefs(wf.gatewayPrompt)) {
+		add({ key, label: key, type: "string" });
+	}
+
+	// Auto-detect from step prompts
+	for (const step of wf.steps) {
+		if (step.prompt) {
+			for (const key of extractEnvRefs(step.prompt)) {
+				add({ key, label: key, type: "string" });
+			}
+		}
+	}
+
+	// Auto-detect from worker system prompts
+	for (const wn of uniqueWorkerNames) {
+		const wk = workers.find((w) => w.name === wn);
+		if (wk?.systemPrompt) {
+			for (const key of extractEnvRefs(wk.systemPrompt)) {
+				add({ key, label: key, type: "string" });
+			}
+		}
+	}
+
+	return fields;
+}
 
 export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 	const [page, setPage] = useState<Page>("select");
@@ -91,26 +146,23 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 		setSelectedWorkflow(wf);
 		setBubbleName(wf.label);
 		const defaults: Record<string, string> = {};
-		if (wf.environment) {
-			for (const field of wf.environment) {
-				if (field.default) defaults[field.key] = field.default;
-			}
+		for (const field of getMergedEnvironment(wf, workers)) {
+			if (field.default) defaults[field.key] = field.default;
 		}
 		setEnvValues(defaults);
 		setPage("configure");
-	}, []);
+	}, [workers]);
 
 	const handleCreate = useCallback(async () => {
 		if (!selectedWorkflow) return;
 
-		if (selectedWorkflow.environment) {
-			for (const field of selectedWorkflow.environment) {
+			const envFields = getMergedEnvironment(selectedWorkflow, workers);
+			for (const field of envFields) {
 				if (!envValues[field.key]?.trim()) {
 					setError(`"${field.label}" is required`);
 					return;
 				}
 			}
-		}
 
 		setCreating(true);
 		setError(null);
@@ -154,24 +206,12 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 		} finally {
 			setCreating(false);
 		}
-	}, [selectedWorkflow, cwd, envValues, message, selectedModel, workerHostOverrides, defaultHostId, bubbleName, onBubbleCreated, onClose]);
+	}, [selectedWorkflow, workers, cwd, envValues, message, selectedModel, workerHostOverrides, defaultHostId, bubbleName, onBubbleCreated, onClose]);
 
 	// Collect merged environment from workflow + all referenced workers
-	const mergedEnvironment = selectedWorkflow?.environment ?? [];
-	if (selectedWorkflow) {
-		const workerEnvKeys = new Set(mergedEnvironment.map((f) => f.key));
-		for (const step of selectedWorkflow.steps) {
-			const wk = workers.find((w) => w.name === step.worker);
-			if (wk?.environment) {
-				for (const field of wk.environment) {
-					if (!workerEnvKeys.has(field.key)) {
-						workerEnvKeys.add(field.key);
-						mergedEnvironment.push(field);
-					}
-				}
-			}
-		}
-	}
+		const mergedEnvironment = selectedWorkflow
+			? getMergedEnvironment(selectedWorkflow, workers)
+			: [];
 
 	// Collect unique worker names from selected workflow
 	const uniqueWorkerNames = selectedWorkflow
