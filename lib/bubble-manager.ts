@@ -1,6 +1,7 @@
 import { defineTool, createAgentSession, SessionManager, getAgentDir, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";
 import { AgentSessionWrapper, startRpcSession, getRpcSession } from "./rpc-manager";
 import { cacheSessionPath, resolveSessionPath } from "./session-reader";
+import { cacheSystemPrompt } from "./system-prompt-cache";
 import type { Bubble, BubbleTemplate, BubbleWorker, SshConfig, WorkerResult, WorkerDefinition, WorkflowDefinition } from "./bubble-types";
 import { getBubble, updateBubble, loadTemplate, listBubbles } from "./bubble-store";
 import { SshConnection } from "./ssh-operations";
@@ -144,6 +145,7 @@ export class BubbleManager {
 		const gwSessionId = gatewayInner.sessionId as string;
 		const gwSessionFile = gatewayInner.sessionFile as string | undefined;
 		if (gwSessionFile) cacheSessionPath(gwSessionId, gwSessionFile);
+		if (gatewayPrompt) cacheSystemPrompt(gwSessionId, gatewayPrompt);
 
 		gwWrapper.onDestroy(() => registry?.delete(gwSessionId));
 		registry?.set(gwSessionId, gwWrapper);
@@ -226,6 +228,7 @@ export class BubbleManager {
 		const realSessionId = workerInner.sessionId as string;
 		const realSessionFile = workerInner.sessionFile as string | undefined;
 		if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
+		if (interpolatedPrompt) cacheSystemPrompt(realSessionId, interpolatedPrompt);
 
 		wrapper.onDestroy(() => registry?.delete(realSessionId));
 		registry?.set(realSessionId, wrapper);

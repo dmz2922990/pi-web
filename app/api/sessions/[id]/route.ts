@@ -9,6 +9,7 @@ import {
   listAllSessions,
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
+import { getCachedSystemPrompt } from "@/lib/system-prompt-cache";
 
 export async function GET(
   req: Request,
@@ -58,7 +59,8 @@ export async function GET(
         const state = await rpc.send({ type: "get_state" });
         agentState = { running: true, state };
       } else {
-        agentState = { running: false };
+        const cachedPrompt = getCachedSystemPrompt(id);
+        agentState = { running: false, state: cachedPrompt ? { systemPrompt: cachedPrompt } : undefined };
       }
     }
 
