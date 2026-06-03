@@ -258,11 +258,12 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     loadBubbles();
   }, [loadSessions, loadBubbles, refreshKey]);
 
-  // Poll bubble status while any bubble is running
+  // Poll bubble status: fast when running, slow when completed (so re-execution is detected)
   useEffect(() => {
+    if (bubbles.length === 0) return;
     const hasRunning = bubbles.some((b) => b.status === "running");
-    if (!hasRunning) return;
-    const id = setInterval(loadBubbles, 3000);
+    const interval = hasRunning ? 3000 : 8000;
+    const id = setInterval(loadBubbles, interval);
     return () => clearInterval(id);
   }, [bubbles, loadBubbles]);
 

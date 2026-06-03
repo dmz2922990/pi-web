@@ -30,11 +30,11 @@ export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelet
 		bubble.gatewayStreaming ||
 		(bubble.workerStates ?? []).some((w) => w.isStreaming);
 
-	const bubbleDotColor =
-		bubble.status === "completed" ? "#22c55e" :
-		bubble.status === "failed" ? "#ef4444" :
-		anyWorking ? "#3b82f6" :
-		"var(--text-dim)";
+		const bubbleDotColor =
+			anyWorking ? "#3b82f6" :
+			bubble.status === "completed" ? "#22c55e" :
+			bubble.status === "failed" ? "#ef4444" :
+			"var(--text-dim)";
 
 	const bubbleLabel = bubble.name || bubble.workflowName || bubble.templateName;
 
