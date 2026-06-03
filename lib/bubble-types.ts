@@ -1,3 +1,44 @@
+// --- Worker Definition (independent, reusable agent) ---
+
+export interface WorkerDefinition {
+  name: string;
+  label: string;
+  systemPrompt: string;
+  tools: string[];
+  model?: { provider: string; modelId: string };
+  timeoutMinutes?: number;
+  environment?: BubbleEnvironmentField[];
+}
+
+// --- Workflow ---
+
+export interface WorkflowStep {
+  id: string;
+  name: string;
+  worker: string;
+  prompt?: string;
+  terminalStatus?: "success" | "failed";
+  onSuccess?: string[];
+  onFailure?: string[];
+}
+
+export interface WorkflowDefinition {
+  name: string;
+  label: string;
+  description?: string;
+  gatewayPrompt: string;
+  maxIterations: number;
+  environment?: BubbleEnvironmentField[];
+  steps: WorkflowStep[];
+  entryStep: string;
+}
+
+export interface WorkflowBundle {
+  version: 1;
+  workflow: WorkflowDefinition;
+  workers: Record<string, WorkerDefinition>;
+}
+
 // --- SSH Configuration ---
 
 export interface SshConfig {
@@ -49,6 +90,7 @@ export type BubbleStatus = "running" | "completed" | "failed";
 
 export interface BubbleWorker {
 	roleName: string;
+		workerName?: string;
 	sessionId: string;
 	isRemote?: boolean;
 	sessionFile?: string;
@@ -64,6 +106,7 @@ export interface Bubble {
 	id: string;
 	name: string;
 	templateName: string;
+	workflowName?: string;
 	cwd: string;
 	status: BubbleStatus;
 	gatewaySessionId: string;

@@ -36,7 +36,7 @@ export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelet
 		anyWorking ? "#3b82f6" :
 		"var(--text-dim)";
 
-	const bubbleLabel = bubble.name || bubble.templateName;
+	const bubbleLabel = bubble.name || bubble.workflowName || bubble.templateName;
 
 	const makeSessionInfo = (sessionId: string, label: string): SessionInfo => ({
 		id: sessionId,

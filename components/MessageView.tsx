@@ -624,16 +624,23 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
   const resultIsEmpty = resultText === null ? false : (resultText.trim() === "(no output)" || resultText.trim() === "");
   const isError = result?.isError ?? false;
 
-  // Parse invoke result for display below the collapsible box
+  // Parse invoke/submit_result result for display below the collapsible box
   const isInvoke = block.toolName.startsWith("invoke_");
+  const isSubmitResult = block.toolName === "submit_result";
   const workerResult = useMemo<{ status: string; summary: string; error?: string } | null>(() => {
-    if (!isInvoke || !resultText) return null;
+    if ((!isInvoke && !isSubmitResult) || !resultText) return null;
     try {
       const parsed = JSON.parse(resultText);
       if (parsed && typeof parsed.status === "string" && typeof parsed.summary === "string") return parsed;
-    } catch { /* not JSON */ }
+    } catch {
+      // Legacy format: "Workflow success: ..." or "Workflow failed: ..."
+      if (isSubmitResult) {
+        const match = resultText.match(/^Workflow (success|failed): ([\s\S]*)$/);
+        if (match) return { status: match[1], summary: match[2] };
+      }
+    }
     return null;
-  }, [isInvoke, resultText]);
+  }, [isInvoke, isSubmitResult, resultText]);
 
   return (
     <div
@@ -706,9 +713,9 @@ function ToolCallBlock({ block, result, isRunning, duration }: { block: ToolCall
         />
       )}
 
-      {/* ── Invoke result output — always visible ── */}
+      {/* ── Invoke/submit result output — always visible ── */}
       {workerResult && (
-        <InvokeResultOutput result={workerResult} roleName={block.toolName.replace(/^invoke_/, "")} />
+        <InvokeResultOutput result={workerResult} roleName={isSubmitResult ? "Workflow" : block.toolName.replace(/^invoke_/, "")} />
       )}
     </div>
   );

@@ -77,14 +77,16 @@ export function createBubble(
 	cwd: string,
 	environment: Record<string, string>,
 	name?: string,
+	workflowName?: string,
 ): Bubble {
 	const id = `bubble_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
 	const now = new Date().toISOString();
 
 	const bubble: Bubble = {
 		id,
-		name: name ?? templateName,
+		name: name ?? workflowName ?? templateName,
 		templateName,
+		...(workflowName ? { workflowName } : {}),
 		cwd,
 		status: "running",
 		gatewaySessionId: "",

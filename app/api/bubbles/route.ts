@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createBubble, listBubbles, loadTemplate } from "@/lib/bubble-store";
 import { startBubble, getBubbleManager, restoreRunningBubbles } from "@/lib/bubble-manager";
 import { getHost } from "@/lib/host-store";
-import type { BubbleTemplate, SshConfig } from "@/lib/bubble-types";
+import { getWorkflow } from "@/lib/workflow-store";
+import { getWorker } from "@/lib/worker-store";
+import { getWorkflowWorkerNames } from "@/lib/workflow-compiler";
+import type { BubbleTemplate, SshConfig, WorkerDefinition } from "@/lib/bubble-types";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +42,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
 	try {
 		const body = await request.json();
-		const { templateName, cwd, environment = {}, message, model, hostSelections, name } = body as {
+		const { templateName, workflowName, cwd, environment = {}, message, model, hostSelections, name } = body as {
 			templateName?: string;
+			workflowName?: string;
 			cwd?: string;
 			environment?: Record<string, string>;
 			message?: string;
@@ -49,17 +53,30 @@ export async function POST(request: NextRequest) {
 		name?: string;
 		};
 
-		if (!templateName || !cwd) {
+		if ((!templateName && !workflowName) || !cwd) {
 			return NextResponse.json(
-				{ error: "templateName and cwd are required" },
+				{ error: "templateName or workflowName, and cwd are required" },
 				{ status: 400 },
 			);
 		}
 
-		const bubble = createBubble(templateName, cwd, environment, name);
+		const bubble = createBubble(templateName ?? "", cwd, environment, name, workflowName);
 
-		// Load template and apply host selections if provided
-		let template = loadTemplate(templateName);
+		// Workflow mode: startBubble handles workflow resolution internally
+		if (workflowName) {
+			const manager = await startBubble(bubble.id, message, model, undefined, hostSelections);
+			return NextResponse.json({
+				bubble: {
+					...bubble,
+					gatewaySessionId: manager.getGatewaySessionId(),
+					workers: manager.getWorkers(),
+					status: manager.getStatus(),
+				},
+			});
+		}
+
+		// Template mode
+		let template = loadTemplate(templateName!);
 		if (template && hostSelections && Object.keys(hostSelections).length > 0) {
 			template = applyHostSelections(template, hostSelections);
 		}
