@@ -404,6 +404,13 @@ export class BubbleManager {
 			promptSnippet: `invoke_${wc.name}: Call the ${wc.label} worker`,
 			executionMode: "sequential" as const,
 			execute: async (_toolCallId, params, _signal, onUpdate, _ctx) => {
+				// Reset bubble status to running when workflow re-executes
+				if (manager.bubble.status !== "running") {
+					manager.bubble.status = "running";
+					manager.bubble.completedAt = undefined;
+					manager.bubble.result = undefined;
+					updateBubble(manager.bubble.id, { status: "running", completedAt: undefined, result: undefined });
+				}
 				const timeoutMs = (wc.timeoutMinutes ?? 10) * 60_000;
 				const failures = manager.consecutiveFailures.get(wc.name) ?? 0;
 
