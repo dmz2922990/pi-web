@@ -619,6 +619,9 @@ class FeishuBot {
 		await this.sendAck(chatId, resolved.name);
 
 		// Wait for agent_end with timeout
+		// Snapshot current entry count so we only extract new replies
+		const entryCountBefore = this.getEntryCount(wrapper);
+
 		const timeoutMs = this.config.agentTimeoutMs ?? DEFAULT_TIMEOUT_MS;
 
 		await new Promise<void>((resolve) => {
@@ -651,11 +654,12 @@ class FeishuBot {
 					clearTimeout(timer);
 					unsubscribe();
 
-					const reply = this.extractLastAssistantReply(wrapper);
+					const reply = this.extractLastAssistantReply(wrapper, entryCountBefore);
+					const header = `**[${resolved.name}]**\n`;
 					if (reply) {
-						await this.sendReply(chatId, reply);
+						await this.sendReply(chatId, header + reply);
 					} else {
-						await this.sendReply(chatId, "_(Agent completed with no text output)_");
+						await this.sendReply(chatId, header + "_(Agent completed with no text output)_");
 					}
 					resolve();
 				}
@@ -706,7 +710,18 @@ class FeishuBot {
 
 	// --- Extract last assistant reply ---
 
-	private extractLastAssistantReply(wrapper: AgentSessionWrapper): string | null {
+	private getEntryCount(wrapper: AgentSessionWrapper): number {
+		const sessionFile = wrapper.sessionFile;
+		if (!sessionFile) return 0;
+		try {
+			const sm = SessionManager.open(sessionFile);
+			return sm.getEntries()?.length ?? 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	private extractLastAssistantReply(wrapper: AgentSessionWrapper, afterIndex: number = 0): string | null {
 		const sessionFile = wrapper.sessionFile;
 		if (!sessionFile) return null;
 
@@ -715,17 +730,50 @@ class FeishuBot {
 			const entries = sm.getEntries();
 			if (!entries || entries.length === 0) return null;
 
-			for (let i = entries.length - 1; i >= 0; i--) {
+			// Only look at entries added after the prompt was sent
+			for (let i = entries.length - 1; i >= afterIndex; i--) {
 				const entry = entries[i] as unknown as Record<string, unknown>;
 				if (entry.type === "message") {
 					const message = entry.message as Record<string, unknown>;
 					if (message?.role === "assistant") {
 						const content = message.content as Array<Record<string, unknown>>;
+						// 1. Look for text content
 						const textParts = content
 							?.filter((c) => c.type === "text")
 							.map((c) => c.text as string)
 							.filter(Boolean);
 						if (textParts?.length) return textParts.join("\n");
+						// 2. Look for submit_result tool call (bubble gateway completion)
+						const toolCalls = content?.filter(
+							(c) => c.type === "toolCall" && (c.name === "submit_result" || c.toolName === "submit_result"),
+						);
+						if (toolCalls?.length) {
+							const tc = toolCalls[0];
+							const args = tc.arguments || tc.input;
+							if (typeof args === "string") {
+								try {
+									const parsed = JSON.parse(args as string);
+									if (parsed.summary) return parsed.summary;
+								} catch { /* ignore */ }
+							} else if (args && typeof args === "object") {
+								const a = args as Record<string, unknown>;
+								if (a.summary) return a.summary as string;
+							}
+						}
+						// 3. Look for any invoke_ tool call result text
+						const invokeCalls = content?.filter(
+							(c) => c.type === "toolCall" && ((c.name as string)?.startsWith("invoke_") || (c.toolName as string)?.startsWith("invoke_")),
+						);
+						if (invokeCalls?.length) {
+							const tc = invokeCalls[invokeCalls.length - 1];
+							const args = tc.arguments || tc.input;
+							if (typeof args === "string") {
+								try {
+									const parsed = JSON.parse(args as string);
+									if (parsed.task) return `Invoking worker: ${parsed.task}`;
+								} catch { /* ignore */ }
+							}
+						}
 					}
 				}
 			}
