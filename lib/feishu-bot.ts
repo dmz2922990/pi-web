@@ -333,7 +333,7 @@ class FeishuBot {
 		if (!isAllowedChat && !isAllowedUser) return;
 
 		const text = this.extractText(event.content);
-		writeFileSync(join(process.env.HOME || "/tmp", ".pi/agent/feishu-debug.log"), `[${new Date().toISOString()}] raw: ${JSON.stringify(event.content)}\nextracted: ${JSON.stringify(text)}\n\n`, { flag: "a" });
+		writeFileSync(join(process.env.HOME || "/tmp", ".pi/agent/feishu-debug.log"), `[${new Date().toISOString()}] event_id=${event.event_id} chat=${event.chat_id} sender=${event.sender_id} msg=${event.message_id} type=${event.message_type}\nraw: ${JSON.stringify(event.content)}\nextracted: ${JSON.stringify(text)}\n\n`, { flag: "a" });
 		if (!text) return;
 
 		await this.processMessage(event.chat_id, text);
@@ -499,9 +499,22 @@ class FeishuBot {
 
 	// --- Command execution ---
 
+	private getbubbleSessionIds(): Set<string> {
+		const ids = new Set<string>();
+		for (const b of listBubbles()) {
+			if (b.gatewaySessionId) ids.add(b.gatewaySessionId);
+			for (const w of b.workers) {
+				if (w.sessionId) ids.add(w.sessionId);
+			}
+		}
+		return ids;
+	}
+
 	private async executeSessionList(chatId: string): Promise<void> {
 		const sessions = await listAllSessions();
-		const simplified = sessions.map((s) => ({
+		const bubbleSessionIds = this.getbubbleSessionIds();
+		const filtered = sessions.filter((s) => !bubbleSessionIds.has(s.id));
+		const simplified = filtered.map((s) => ({
 			id: s.id,
 			name: s.name ?? null,
 			firstMessage: s.firstMessage,
