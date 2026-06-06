@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBubble, deleteBubble as deleteBubbleStore } from "@/lib/bubble-store";
 import { stopBubble, getBubbleManager } from "@/lib/bubble-manager";
+import { resolveSessionPath, invalidateSessionPathCache } from "@/lib/session-reader";
+import { getRpcSession } from "@/lib/rpc-manager";
+import { unlinkSync } from "fs";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +45,26 @@ export async function DELETE(
 	const { id } = await params;
 
 	try {
+		const bubble = getBubble(id);
 		await stopBubble(id);
+
+		// Delete associated session files (gateway + workers)
+		if (bubble) {
+			const sessionIds: string[] = [];
+			if (bubble.gatewaySessionId) sessionIds.push(bubble.gatewaySessionId);
+			for (const w of bubble.workers) {
+				if (w.sessionId) sessionIds.push(w.sessionId);
+			}
+			for (const sid of sessionIds) {
+				getRpcSession(sid)?.destroy();
+				const path = await resolveSessionPath(sid);
+				if (path) {
+					try { unlinkSync(path); } catch { /* ignore */ }
+				}
+				invalidateSessionPathCache(sid);
+			}
+		}
+
 		deleteBubbleStore(id);
 		return NextResponse.json({ success: true });
 	} catch (err) {
