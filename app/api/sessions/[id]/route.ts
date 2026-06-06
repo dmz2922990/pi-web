@@ -10,6 +10,7 @@ import {
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { getCachedSystemPrompt } from "@/lib/system-prompt-cache";
+import { isBubbleRemoteSession } from "@/lib/bubble-manager";
 
 export async function GET(
   req: Request,
@@ -71,6 +72,7 @@ export async function GET(
       tree,
       leafId,
       context,
+      isRemote: isBubbleRemoteSession(id),
       ...(agentState !== undefined ? { agentState } : {}),
     });
   } catch (error) {

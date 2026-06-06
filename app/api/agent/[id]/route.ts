@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession } from "@/lib/rpc-manager";
+import { restoreBubbleSession, isBubbleRemoteSession } from "@/lib/bubble-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 // POST /api/agent/[id] - Send a command to an existing session
@@ -25,6 +26,15 @@ export async function POST(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
+    // Try bubble session restore first (preserves SSH tools)
+    console.log("[POST /api/agent] trying restoreBubbleSession for", id);
+    const bubbleSession = await restoreBubbleSession(id);
+    console.log("[POST /api/agent] bubbleSession=", !!bubbleSession);
+    if (bubbleSession) {
+      const result = await bubbleSession.send(body);
+      return NextResponse.json({ success: true, data: result });
+    }
+
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
 
     const { session } = await startRpcSession(id, filePath, cwd);
@@ -46,11 +56,17 @@ export async function GET(
   try {
     const session = getRpcSession(id);
     if (!session || !session.isAlive()) {
+      // Check if this is a bubble session that can be restored
+      const bubbleSession = await restoreBubbleSession(id);
+      if (bubbleSession) {
+        const state = await bubbleSession.send({ type: "get_state" });
+        return NextResponse.json({ running: true, state, isRemote: isBubbleRemoteSession(id) });
+      }
       return NextResponse.json({ running: false });
     }
 
     const state = await session.send({ type: "get_state" });
-    return NextResponse.json({ running: true, state });
+    return NextResponse.json({ running: true, state, isRemote: isBubbleRemoteSession(id) });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

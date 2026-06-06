@@ -3,7 +3,7 @@ import { AgentSessionWrapper, startRpcSession, getRpcSession } from "./rpc-manag
 import { cacheSessionPath, resolveSessionPath } from "./session-reader";
 import { cacheSystemPrompt } from "./system-prompt-cache";
 import type { Bubble, BubbleTemplate, BubbleWorker, SshConfig, WorkerResult, WorkerDefinition, WorkflowDefinition } from "./bubble-types";
-import { getBubble, updateBubble, loadTemplate, listBubbles } from "./bubble-store";
+import { getBubble, updateBubble, loadTemplate, listBubbles, findBubbleBySessionId } from "./bubble-store";
 import { SshConnection } from "./ssh-operations";
 import { createSshTools } from "./ssh-tool-factory";
 import { compileWorkflowToPrompt, getWorkflowWorkerNames } from "./workflow-compiler";
@@ -130,6 +130,7 @@ export class BubbleManager {
 		// Apply model
 		const modelSpec = runtimeModel ?? (this.template?.gateway.model);
 		if (modelSpec) {
+			gatewayInner.modelRegistry.authStorage.reload();
 			const model = gatewayInner.modelRegistry.find(modelSpec.provider, modelSpec.modelId);
 			if (model) await gatewayInner.setModel(model);
 		}
@@ -225,6 +226,13 @@ export class BubbleManager {
 		const wrapper = new AgentSessionWrapper(workerInner, { noIdleTimeout: true });
 		wrapper.start();
 
+		// Apply worker-specific model
+		if (wc.model) {
+			workerInner.modelRegistry.authStorage.reload();
+			const wModel = workerInner.modelRegistry.find(wc.model.provider, wc.model.modelId);
+			if (wModel) await workerInner.setModel(wModel);
+		}
+
 		const realSessionId = workerInner.sessionId as string;
 		const realSessionFile = workerInner.sessionFile as string | undefined;
 		if (realSessionFile) cacheSessionPath(realSessionId, realSessionFile);
@@ -255,7 +263,7 @@ export class BubbleManager {
 		return realSessionId;
 	}
 
-	private async ensureWorker(roleName: string): Promise<AgentSessionWrapper | null> {
+	async ensureWorker(roleName: string): Promise<AgentSessionWrapper | null> {
 		const wc = this.resolveWorkerConfig(roleName);
 		if (!wc) return null;
 
@@ -326,6 +334,106 @@ export class BubbleManager {
 
 	addSshConnection(conn: SshConnection): void {
 		this.sshConnections.push(conn);
+	}
+
+	async restoreWorkerSession(worker: BubbleWorker): Promise<AgentSessionWrapper | null> {
+		const wc = this.resolveWorkerConfig(worker.roleName);
+		if (!wc) return null;
+
+		const registry = (globalThis as Record<string, unknown>).__piSessions as
+			| Map<string, AgentSessionWrapper>
+			| undefined;
+		if (!registry) return null;
+
+		// Already alive?
+		const alive = this.workerWrappers.get(worker.sessionId);
+		if (alive?.isAlive()) return alive;
+
+		const sessionFile = worker.sessionFile ?? await resolveSessionPath(worker.sessionId);
+		if (!sessionFile) return null;
+
+		// Resolve SSH config
+		let workerSsh: SshConfig | undefined;
+		if (worker.hostId && worker.hostId !== "local") {
+			const { getHost } = await import("./host-store");
+			const hostConfig = getHost(worker.hostId);
+			if (hostConfig) {
+				workerSsh = {
+					host: hostConfig.host,
+					port: hostConfig.port,
+					user: hostConfig.user,
+					password: hostConfig.password,
+					privateKey: hostConfig.privateKey,
+					remoteCwd: hostConfig.remoteCwd,
+				};
+			}
+		}
+		if (!workerSsh && wc.executionMode === "ssh" && wc.ssh) {
+			workerSsh = wc.ssh;
+		}
+
+		try {
+			const workerSessionManager = SessionManager.open(sessionFile, undefined);
+			const workerLoader = new DefaultResourceLoader({
+				cwd: this.bubble.cwd,
+				agentDir: getAgentDir(),
+				systemPromptOverride: () => this.interpolateEnv(wc.systemPrompt),
+				appendSystemPromptOverride: () => [],
+			});
+			await workerLoader.reload();
+
+			let workerInner: Awaited<ReturnType<typeof createAgentSession>>["session"];
+
+			if (workerSsh) {
+				const sshConn = new SshConnection(workerSsh);
+				await sshConn.connect();
+				this.sshConnections.push(sshConn);
+
+				const workerCwd = workerSsh.remoteCwd ?? this.bubble.cwd;
+				const sshToolInstances = createSshTools(workerCwd, sshConn);
+				const sshToolNames = sshToolInstances.map((t) => t.name);
+
+				const result = await createAgentSession({
+					cwd: workerCwd,
+					agentDir: getAgentDir(),
+					resourceLoader: workerLoader,
+					sessionManager: workerSessionManager,
+					noTools: "builtin",
+					tools: sshToolNames as unknown as string[],
+					customTools: sshToolInstances,
+				});
+				workerInner = result.session;
+			} else {
+				const result = await createAgentSession({
+					cwd: this.bubble.cwd,
+					agentDir: getAgentDir(),
+					resourceLoader: workerLoader,
+					sessionManager: workerSessionManager,
+					tools: wc.tools,
+				});
+				workerInner = result.session;
+			}
+
+			// Apply worker-specific model
+			if (wc.model) {
+				workerInner.modelRegistry.authStorage.reload();
+				const wModel = workerInner.modelRegistry.find(wc.model.provider, wc.model.modelId);
+				if (wModel) await workerInner.setModel(wModel);
+			}
+
+			const wrapper = new AgentSessionWrapper(workerInner, { noIdleTimeout: true });
+			wrapper.start();
+			cacheSessionPath(workerInner.sessionId as string, sessionFile);
+			if (wc.systemPrompt) cacheSystemPrompt(workerInner.sessionId as string, this.interpolateEnv(wc.systemPrompt));
+
+			wrapper.onDestroy(() => registry.delete(workerInner.sessionId as string));
+			registry.set(workerInner.sessionId as string, wrapper);
+			this.workerWrappers.set(workerInner.sessionId as string, wrapper);
+
+			return wrapper;
+		} catch {
+			return null;
+		}
 	}
 
 	getWorkerWrapper(sessionId: string): AgentSessionWrapper | null {
@@ -660,6 +768,7 @@ export async function startBubble(
 	model?: { provider: string; modelId: string },
 	templateOverride?: BubbleTemplate,
 	hostSelections?: Record<string, string>,
+	workerModels?: Record<string, { provider: string; modelId: string }>,
 ): Promise<BubbleManager> {
 	const existing = getManagers()[bubbleId];
 	if (existing) return existing;
@@ -711,7 +820,7 @@ export async function startBubble(
 				label: w.label,
 				systemPrompt: w.systemPrompt,
 				tools: w.tools,
-				model: w.model,
+				model: workerModels?.[name] ?? w.model,
 				timeoutMinutes: w.timeoutMinutes,
 				executionMode,
 				ssh,
@@ -734,6 +843,117 @@ export async function startBubble(
 
 export function getBubbleManager(bubbleId: string): BubbleManager | undefined {
 	return getManagers()[bubbleId];
+}
+
+export function isBubbleRemoteSession(sessionId: string): boolean {
+	const bubble = findBubbleBySessionId(sessionId);
+	if (!bubble) return false;
+	const worker = bubble.workers.find((w) => w.sessionId === sessionId);
+	return worker?.isRemote === true;
+}
+
+async function ensureManager(bubble: Bubble): Promise<BubbleManager | null> {
+	const existing = getManagers()[bubble.id];
+	if (existing) return existing;
+
+	// Build manager from bubble config (same logic as doRestore)
+	let manager: BubbleManager;
+	let workerConfigs: Map<string, WorkerInstanceConfig>;
+
+	if (bubble.workflowName) {
+		const workflow = getWorkflow(bubble.workflowName);
+		if (!workflow) return null;
+		const workerNames = getWorkflowWorkerNames(workflow);
+		const workerDefsMap = new Map<string, WorkerDefinition>();
+		const configs = new Map<string, WorkerInstanceConfig>();
+		for (const name of workerNames) {
+			const def = getWorker(name);
+			if (def) {
+				workerDefsMap.set(name, def);
+				configs.set(name, {
+					name: def.name,
+					label: def.label,
+					systemPrompt: def.systemPrompt,
+					tools: def.tools,
+					model: def.model,
+					timeoutMinutes: def.timeoutMinutes,
+				});
+			}
+		}
+		manager = new BubbleManager(bubble, { workflow, workers: workerDefsMap, workerConfigs: configs });
+		workerConfigs = configs;
+	} else {
+		const template = loadTemplate(bubble.templateName);
+		if (!template) return null;
+		manager = new BubbleManager(bubble, template);
+		workerConfigs = new Map();
+		for (const role of template.roles) {
+			workerConfigs.set(role.name, {
+				name: role.name,
+				label: role.label,
+				systemPrompt: role.systemPrompt,
+				tools: role.tools,
+				model: role.model,
+				timeoutMinutes: role.timeoutMinutes,
+				executionMode: role.executionMode as "local" | "ssh" | undefined,
+				ssh: role.ssh,
+				hostId: role.hostId,
+			});
+		}
+	}
+
+	// Restore existing gateway if alive
+	const registry = (globalThis as Record<string, unknown>).__piSessions as
+		| Map<string, AgentSessionWrapper>
+		| undefined;
+	const gwSession = registry?.get(bubble.gatewaySessionId);
+	if (gwSession?.isAlive()) {
+		manager.setGatewayWrapper(gwSession);
+	}
+
+	// Restore existing alive workers
+	for (const worker of bubble.workers) {
+		const wSession = registry?.get(worker.sessionId);
+		if (wSession?.isAlive()) {
+			manager.addWorkerWrapper(worker.sessionId, wSession);
+		}
+	}
+
+	getManagers()[bubble.id] = manager;
+	return manager;
+}
+
+export async function restoreBubbleSession(sessionId: string): Promise<AgentSessionWrapper | null> {
+	const registry = (globalThis as Record<string, unknown>).__piSessions as
+		| Map<string, AgentSessionWrapper>
+		| undefined;
+	if (!registry) return null;
+
+	// Already restored?
+	const existing = registry.get(sessionId);
+	if (existing?.isAlive()) return existing;
+
+	const bubble = findBubbleBySessionId(sessionId);
+	if (!bubble) return null;
+
+	// Gateway session
+	if (bubble.gatewaySessionId === sessionId) {
+		const mgr = await ensureManager(bubble);
+		return mgr?.getGatewayWrapper() ?? null;
+	}
+
+	// Worker session — find which role this sessionId belongs to
+	const workerEntry = bubble.workers.find((w) => w.sessionId === sessionId);
+	console.log("[restoreBubbleSession] workerEntry=", workerEntry ? workerEntry.roleName : null, "isRemote=", workerEntry?.isRemote, "hostId=", workerEntry?.hostId);
+	if (!workerEntry) return null;
+
+	const mgr = await ensureManager(bubble);
+	console.log("[restoreBubbleSession] mgr=", !!mgr);
+	if (!mgr) return null;
+
+	const restored = await mgr.restoreWorkerSession(workerEntry);
+	console.log("[restoreBubbleSession] restored=", !!restored);
+	return restored;
 }
 
 export async function stopBubble(bubbleId: string): Promise<void> {

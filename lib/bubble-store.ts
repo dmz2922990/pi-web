@@ -158,6 +158,14 @@ export function updateBubble(
 	return bubble;
 }
 
+export function findBubbleBySessionId(sessionId: string): Bubble | null {
+	for (const bubble of listBubbles()) {
+		if (bubble.gatewaySessionId === sessionId) return bubble;
+		if (bubble.workers.some((w) => w.sessionId === sessionId)) return bubble;
+	}
+	return null;
+}
+
 export function deleteBubble(id: string): boolean {
 	const dir = bubbleDir(id);
 	if (!existsSync(dir)) return false;

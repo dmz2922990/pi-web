@@ -91,6 +91,7 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 	const [hosts, setHosts] = useState<HostConfig[]>([]);
 	const [defaultHostId, setDefaultHostId] = useState<string>("local");
 	const [workerHostOverrides, setWorkerHostOverrides] = useState<Record<string, string>>({});
+	const [workerModelOverrides, setWorkerModelOverrides] = useState<Record<string, string>>({});
 
 	const loadData = useCallback(() => {
 		Promise.all([
@@ -190,6 +191,12 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 					message: message.trim() || undefined,
 					model: modelObj,
 					hostSelections,
+					workerModels: Object.fromEntries(
+						Object.entries(workerModelOverrides).filter(([_, v]) => v).map(([k, v]) => {
+							const parts = v.split(":");
+							return [k, { provider: parts[0], modelId: parts[1] }];
+						})
+					),
 				}),
 			});
 
@@ -206,7 +213,7 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 		} finally {
 			setCreating(false);
 		}
-	}, [selectedWorkflow, workers, cwd, envValues, message, selectedModel, workerHostOverrides, defaultHostId, bubbleName, onBubbleCreated, onClose]);
+	}, [selectedWorkflow, workers, cwd, envValues, message, selectedModel, workerHostOverrides, workerModelOverrides, defaultHostId, bubbleName, onBubbleCreated, onClose]);
 
 	// Collect merged environment from workflow + all referenced workers
 		const mergedEnvironment = selectedWorkflow
@@ -402,12 +409,30 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 							<span style={{ color: "var(--text-dim)" }}>
 								[{wk?.tools.join(", ") ?? wn}]
 							</span>
+							{models.length > 0 && (
+								<select
+									value={workerModelOverrides[wn] ?? ""}
+									onChange={(e) => setWorkerModelOverrides((prev) => ({ ...prev, [wn]: e.target.value }))}
+									style={{
+										marginLeft: "auto", padding: "3px 6px",
+										background: "var(--bg-hover)", border: "1px solid var(--border)",
+										borderRadius: 5, color: "var(--text)", fontSize: 10,
+										outline: "none",
+									}}
+								>
+									<option value="">Global Model</option>
+									{models.map((m) => {
+										const key = `${m.provider}:${m.id}`;
+										return <option key={key} value={key}>{m.name} [{m.provider}]</option>;
+									})}
+								</select>
+							)}
 							{hosts.length > 0 && (
 								<select
 									value={workerHostOverrides[wn] ?? ""}
 									onChange={(e) => setWorkerHostOverrides((prev) => ({ ...prev, [wn]: e.target.value }))}
 									style={{
-										marginLeft: "auto", padding: "3px 6px",
+										padding: "3px 6px",
 										background: "var(--bg-hover)", border: "1px solid var(--border)",
 										borderRadius: 5, color: "var(--text)", fontSize: 10,
 										outline: "none",

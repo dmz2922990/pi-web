@@ -1,5 +1,6 @@
 import { resolveSessionPath } from "@/lib/session-reader";
 import { getRpcSession, startRpcSession } from "@/lib/rpc-manager";
+import { restoreBubbleSession } from "@/lib/bubble-manager";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 export const dynamic = "force-dynamic";
@@ -14,15 +15,21 @@ export async function GET(
   // Fast path: already-running session
   let session = getRpcSession(id);
   if (!session || !session.isAlive()) {
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return new Response("Session not found", { status: 404 });
-    }
-    const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
-    try {
-      ({ session } = await startRpcSession(id, filePath, cwd));
-    } catch (error) {
-      return new Response(`Failed to start agent: ${error}`, { status: 500 });
+    // Try bubble session restore first (preserves SSH tools)
+    const bubbleSession = await restoreBubbleSession(id);
+    if (bubbleSession) {
+      session = bubbleSession;
+    } else {
+      const filePath = await resolveSessionPath(id);
+      if (!filePath) {
+        return new Response("Session not found", { status: 404 });
+      }
+      const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
+      try {
+        ({ session } = await startRpcSession(id, filePath, cwd));
+      } catch (error) {
+        return new Response(`Failed to start agent: ${error}`, { status: 500 });
+      }
     }
   }
 

@@ -42,7 +42,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
 	try {
 		const body = await request.json();
-		const { templateName, workflowName, cwd, environment = {}, message, model, hostSelections, name } = body as {
+		const { templateName, workflowName, cwd, environment = {}, message, model, hostSelections, workerModels, name } = body as {
 			templateName?: string;
 			workflowName?: string;
 			cwd?: string;
@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
 			message?: string;
 			model?: { provider: string; modelId: string };
 			hostSelections?: Record<string, string>;
+		workerModels?: Record<string, { provider: string; modelId: string }>;
 		name?: string;
 		};
 
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
 
 		// Workflow mode: startBubble handles workflow resolution internally
 		if (workflowName) {
-			const manager = await startBubble(bubble.id, message, model, undefined, hostSelections);
+			const manager = await startBubble(bubble.id, message, model, undefined, hostSelections, workerModels);
 			return NextResponse.json({
 				bubble: {
 					...bubble,
