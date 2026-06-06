@@ -5,6 +5,7 @@ import type { SessionInfo } from "@/lib/types";
 import type { Bubble } from "@/lib/bubble-types";
 import { FileExplorer } from "./FileExplorer";
 import { BubbleNode } from "./BubbleNode";
+import { BubbleCreateDialog } from "./BubbleCreateDialog";
 
 interface Props {
   selectedSessionId: string | null;
@@ -215,6 +216,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [explorerKey, setExplorerKey] = useState(0);
   const [sessionRefreshDone, setSessionRefreshDone] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
+  const [activeTab, setActiveTab] = useState<"sessions" | "bubbles">("sessions");
+  const [showCreateBubble, setShowCreateBubble] = useState(false);
   const sessionRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const explorerRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -383,14 +386,14 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           <PiAgentTitle />
           <div style={{ display: "flex", gap: 6 }}>
             <button
-              onClick={handleNewSession}
-              disabled={!selectedCwd}
+              onClick={activeTab === "sessions" ? handleNewSession : () => setShowCreateBubble(true)}
+              disabled={activeTab === "sessions" && !selectedCwd}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 background: "var(--bg-hover)",
                 border: "1px solid var(--border)",
-                color: selectedCwd ? "var(--text-muted)" : "var(--text-dim)",
-                cursor: selectedCwd ? "pointer" : "not-allowed",
+                color: activeTab === "sessions" && !selectedCwd ? "var(--text-dim)" : "var(--text-muted)",
+                cursor: activeTab === "sessions" && !selectedCwd ? "not-allowed" : "pointer",
                 height: 32,
                 paddingLeft: 10,
                 paddingRight: 12,
@@ -401,16 +404,16 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
                 flexShrink: 0,
                 transition: "background 0.12s, color 0.12s, border-color 0.12s",
               }}
-              title={selectedCwd ? `New session in ${selectedCwd}` : "Select a project first"}
+              title={activeTab === "sessions" ? (selectedCwd ? `New session in ${selectedCwd}` : "Select a project first") : "New Bubble"}
               onMouseEnter={(e) => {
-                if (!selectedCwd) return;
+                if (activeTab === "sessions" && !selectedCwd) return;
                 e.currentTarget.style.background = "var(--bg-selected)";
                 e.currentTarget.style.color = "var(--accent)";
                 e.currentTarget.style.borderColor = "rgba(37,99,235,0.35)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = selectedCwd ? "var(--text-muted)" : "var(--text-dim)";
+                e.currentTarget.style.color = activeTab === "sessions" && !selectedCwd ? "var(--text-dim)" : "var(--text-muted)";
                 e.currentTarget.style.borderColor = "var(--border)";
               }}
             >
@@ -460,6 +463,35 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               )}
             </button>
           </div>
+        </div>
+
+
+        {/* Tab bar */}
+        <div style={{ display: "flex", gap: 0, marginBottom: 8 }}>
+          {(["sessions", "bubbles"] as const).map((tab) => {
+            const isActive = activeTab === tab;
+            const label = tab === "sessions" ? "Sessions" : "Bubbles";
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                style={{
+                  flex: 1,
+                  padding: "6px 0",
+                  background: "none",
+                  border: "none",
+                  borderBottom: isActive ? "2px solid var(--accent)" : "2px solid transparent",
+                  color: isActive ? "var(--accent)" : "var(--text-dim)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontWeight: isActive ? 600 : 500,
+                  transition: "color 0.15s, border-color 0.15s",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {/* CWD picker */}
@@ -684,33 +716,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             {error}
           </div>
         )}
-        {!loading && !error && filteredSessions.length === 0 && bubbles.length === 0 && (
+        {!loading && !error && activeTab === "sessions" && filteredSessions.length === 0 && (
           <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
             No sessions found
           </div>
         )}
-        {bubbles.length > 0 && (
-          <div style={{ borderBottom: "1px solid var(--border)", marginBottom: 4, paddingBottom: 4 }}>
-            <div style={{ padding: "6px 12px", fontSize: 10, fontWeight: 600, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Work Bubbles
-            </div>
-            {bubbles.map((b) => (
-              <BubbleNode
-                key={b.id}
-                bubble={b}
-                selectedSessionId={selectedSessionId}
-                onSelectSession={onSelectSession}
-                onDelete={onBubbleDeleted ? (id: string) => {
-                  fetch(`/api/bubbles/${id}`, { method: "DELETE" }).then(() => {
-                    loadBubbles();
-                    onBubbleDeleted?.(id);
-                  }).catch(() => {});
-                } : undefined}
-              />
-            ))}
+        {!loading && !error && activeTab === "bubbles" && bubbles.length === 0 && (
+          <div style={{ padding: "16px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+            No bubbles yet
           </div>
         )}
-        {sessionTree.map((node) => (
+        {activeTab === "bubbles" && bubbles.map((b) => (
+          <BubbleNode
+            key={b.id}
+            bubble={b}
+            selectedSessionId={selectedSessionId}
+            onSelectSession={onSelectSession}
+            onDelete={onBubbleDeleted ? (id: string) => {
+              fetch(`/api/bubbles/${id}`, { method: "DELETE" }).then(() => {
+                loadBubbles();
+                onBubbleDeleted?.(id);
+              }).catch(() => {});
+            } : undefined}
+          />
+        ))}
+        {activeTab === "sessions" && sessionTree.map((node) => (
           <SessionTreeItem
             key={node.session.id}
             node={node}
@@ -812,6 +842,18 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             </div>
           )}
         </div>
+      )}
+
+      {showCreateBubble && selectedCwd && (
+        <BubbleCreateDialog
+          cwd={selectedCwd}
+          onClose={() => setShowCreateBubble(false)}
+          onBubbleCreated={() => {
+            setShowCreateBubble(false);
+            loadBubbles();
+            setActiveTab("bubbles");
+          }}
+        />
       )}
     </div>
   );
