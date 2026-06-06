@@ -516,7 +516,15 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 						<button onClick={() => { setSelectedWorkflow(null); setPage("select"); }} disabled={creating} style={cancelBtnStyle}>
 							Cancel
 						</button>
-						<button onClick={handleCreate} disabled={creating} style={createBtnStyle(creating)}>
+						<button onClick={handleCreate} disabled={creating} style={{
+							padding: "6px 14px",
+							background: creating ? "var(--bg-hover)" : "var(--accent)",
+							border: "none", borderRadius: 7,
+							color: creating ? "var(--text-muted)" : "#fff",
+							cursor: creating ? "default" : "pointer",
+							fontSize: 12, fontWeight: 600,
+							transition: "background 0.2s, color 0.2s",
+						}}>
 							{creating ? "Creating..." : "Create Bubble"}
 						</button>
 					</div>
