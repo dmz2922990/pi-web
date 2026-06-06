@@ -512,18 +512,22 @@ function WorkerManager({ workers, hosts, onBack, onRefresh }: {
 	const [selected, setSelected] = useState<WorkerDefinition | null>(null);
 	const [form, setForm] = useState<Partial<WorkerDefinition>>({});
 	const [saving, setSaving] = useState(false);
+	const [savedOk, setSavedOk] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [dirty, setDirty] = useState(false);
 
 	const selectWorker = (w: WorkerDefinition) => {
 		setSelected(w);
 		setForm({ ...w });
 		setError(null);
+		setDirty(false);
 	};
 
 	const newWorker = () => {
 		setSelected(null);
 		setForm({ name: "", label: "", systemPrompt: "", tools: [] });
 		setError(null);
+		setDirty(false);
 	};
 
 	const handleSave = async () => {
@@ -535,19 +539,24 @@ function WorkerManager({ workers, hosts, onBack, onRefresh }: {
 		setError(null);
 		try {
 			if (selected) {
-				await fetch("/api/workers", {
+				const res = await fetch("/api/workers", {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ name: selected.name, patch: form }),
 				});
+				if (!res.ok) throw new Error("Save failed");
 			} else {
-				await fetch("/api/workers", {
+				const res = await fetch("/api/workers", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ worker: form }),
 				});
+				if (!res.ok) throw new Error("Save failed");
 			}
 			onRefresh();
+			setDirty(false);
+			setSavedOk(true);
+			setTimeout(() => setSavedOk(false), 2000);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Save failed");
 		} finally {
@@ -607,14 +616,14 @@ function WorkerManager({ workers, hosts, onBack, onRefresh }: {
 				) : (
 					<div>
 						{error && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8 }}>{error}</div>}
-						<FormInput label="Name" value={form.name ?? ""} onChange={(v) => setForm((f) => ({ ...f, name: v }))} disabled={!!selected} placeholder="e.g. code-reviewer (kebab-case, unique ID)" />
-						<FormInput label="Label" value={form.label ?? ""} onChange={(v) => setForm((f) => ({ ...f, label: v }))} placeholder="e.g. Code Reviewer (display name)" />
-						<FormTextarea label="System Prompt" value={form.systemPrompt ?? ""} onChange={(v) => setForm((f) => ({ ...f, systemPrompt: v }))} rows={5} placeholder="Describe the worker role and behavior. This becomes the agent system prompt." />
-						<FormInput label="Tools (comma-separated)" value={(form.tools ?? []).join(", ")} onChange={(v) => setForm((f) => ({ ...f, tools: v.split(",").map((s) => s.trim()).filter(Boolean) }))} placeholder="e.g. read, write, bash (leave empty for default)" />
-						<FormInput label="Timeout (minutes)" value={form.timeoutMinutes?.toString() ?? ""} onChange={(v) => setForm((f) => ({ ...f, timeoutMinutes: v ? parseInt(v) : undefined }))} placeholder="10 (default)" />
+						<FormInput label="Name" value={form.name ?? ""} onChange={(v) => { setForm((f) => ({ ...f, name: v })); setDirty(true); }} disabled={!!selected} placeholder="e.g. code-reviewer (kebab-case, unique ID)" />
+						<FormInput label="Label" value={form.label ?? ""} onChange={(v) => { setForm((f) => ({ ...f, label: v })); setDirty(true); }} placeholder="e.g. Code Reviewer (display name)" />
+						<FormTextarea label="System Prompt" value={form.systemPrompt ?? ""} onChange={(v) => { setForm((f) => ({ ...f, systemPrompt: v })); setDirty(true); }} rows={5} placeholder="Describe the worker role and behavior. This becomes the agent system prompt." />
+						<FormInput label="Tools (comma-separated)" value={(form.tools ?? []).join(", ")} onChange={(v) => { setForm((f) => ({ ...f, tools: v.split(",").map((s) => s.trim()).filter(Boolean) })); setDirty(true); }} placeholder="e.g. read, write, bash (leave empty for default)" />
+						<FormInput label="Timeout (minutes)" value={form.timeoutMinutes?.toString() ?? ""} onChange={(v) => { setForm((f) => ({ ...f, timeoutMinutes: v ? parseInt(v) : undefined })); setDirty(true); }} placeholder="10 (default)" />
 						<div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-							<button onClick={handleSave} disabled={saving} style={createBtnStyle(saving)}>
-								{saving ? "Saving..." : "Save"}
+							<button onClick={handleSave} disabled={saving || !dirty} style={createBtnStyle(saving, savedOk, dirty)}>
+								{savedOk ? "Saved ✓" : saving ? "Saving..." : "Save"}
 							</button>
 							{selected && (
 								<button onClick={handleDelete} disabled={saving} style={{ ...cancelBtnStyle, color: "#ef4444" }}>
@@ -641,13 +650,16 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 	const [form, setForm] = useState<Partial<WorkflowDefinition>>({});
 	const [steps, setSteps] = useState<WorkflowDefinition["steps"]>([]);
 	const [saving, setSaving] = useState(false);
+	const [savedOk, setSavedOk] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [dirty, setDirty] = useState(false);
 
 	const selectWorkflow = (wf: WorkflowDefinition) => {
 		setSelected(wf);
 		setForm({ label: wf.label, description: wf.description, gatewayPrompt: wf.gatewayPrompt, maxIterations: wf.maxIterations });
 		setSteps([...wf.steps]);
 		setError(null);
+		setDirty(false);
 	};
 
 	const newWorkflow = () => {
@@ -655,6 +667,7 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 		setForm({ name: "", label: "", description: "", gatewayPrompt: "", maxIterations: 10, entryStep: "step_1" });
 		setSteps([]);
 		setError(null);
+		setDirty(false);
 	};
 
 	const handleSave = async () => {
@@ -667,19 +680,24 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 		setError(null);
 		try {
 			if (selected) {
-				await fetch("/api/workflows", {
+				const res = await fetch("/api/workflows", {
 					method: "PUT",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ name: selected.name, patch: { ...form, steps } }),
 				});
+				if (!res.ok) throw new Error("Save failed");
 			} else {
-				await fetch("/api/workflows", {
+				const res = await fetch("/api/workflows", {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({ workflow: { ...form, name, steps, entryStep: steps.length > 0 ? steps[0].id : "step_1" } }),
 				});
+				if (!res.ok) throw new Error("Save failed");
 			}
 			onRefresh();
+			setDirty(false);
+			setSavedOk(true);
+			setTimeout(() => setSavedOk(false), 2000);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Save failed");
 		} finally {
@@ -745,6 +763,7 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 	const addStep = () => {
 		const idx = steps.length + 1;
 		setSteps((s) => [...s, { id: `step_${idx}`, name: `Step ${idx}`, worker: workers[0]?.name ?? "" }]);
+		setDirty(true);
 	};
 
 	const updateStep = (i: number, patch: Partial<WorkflowDefinition["steps"][0]>) => {
@@ -753,10 +772,12 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 			next[i] = { ...next[i], ...patch };
 			return next;
 		});
+		setDirty(true);
 	};
 
 	const removeStep = (i: number) => {
 		setSteps((s) => s.filter((_, idx) => idx !== i));
+		setDirty(true);
 	};
 
 	return (
@@ -800,12 +821,12 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 					<div>
 						{error && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8 }}>{error}</div>}
 						{!selected && (
-							<FormInput label="Name" value={(form as { name?: string }).name ?? ""} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="e.g. bug-fix-pipeline (kebab-case, unique ID)" />
+							<FormInput label="Name" value={(form as { name?: string }).name ?? ""} onChange={(v) => { setForm((f) => ({ ...f, name: v })); setDirty(true); }} placeholder="e.g. bug-fix-pipeline (kebab-case, unique ID)" />
 						)}
-						<FormInput label="Label" value={form.label ?? ""} onChange={(v) => setForm((f) => ({ ...f, label: v }))} placeholder="e.g. Bug Fix Pipeline (display name)" />
-						<FormInput label="Description" value={form.description ?? ""} onChange={(v) => setForm((f) => ({ ...f, description: v }))} placeholder="Brief description of what this workflow does" />
-						<FormTextarea label="Gateway Prompt" value={form.gatewayPrompt ?? ""} onChange={(v) => setForm((f) => ({ ...f, gatewayPrompt: v }))} rows={4} placeholder="High-level goal / instructions for the Gateway agent that orchestrates the workflow" />
-						<FormInput label="Max Iterations" value={form.maxIterations?.toString() ?? "10"} onChange={(v) => setForm((f) => ({ ...f, maxIterations: parseInt(v) || 10 }))} placeholder="10 (default, prevents infinite loops)" />
+						<FormInput label="Label" value={form.label ?? ""} onChange={(v) => { setForm((f) => ({ ...f, label: v })); setDirty(true); }} placeholder="e.g. Bug Fix Pipeline (display name)" />
+						<FormInput label="Description" value={form.description ?? ""} onChange={(v) => { setForm((f) => ({ ...f, description: v })); setDirty(true); }} placeholder="Brief description of what this workflow does" />
+						<FormTextarea label="Gateway Prompt" value={form.gatewayPrompt ?? ""} onChange={(v) => { setForm((f) => ({ ...f, gatewayPrompt: v })); setDirty(true); }} rows={4} placeholder="High-level goal / instructions for the Gateway agent that orchestrates the workflow" />
+						<FormInput label="Max Iterations" value={form.maxIterations?.toString() ?? "10"} onChange={(v) => { setForm((f) => ({ ...f, maxIterations: parseInt(v) || 10 })); setDirty(true); }} placeholder="10 (default, prevents infinite loops)" />
 
 						{/* Steps editor */}
 						<div style={{ fontSize: 12, color: "var(--text-muted)", margin: "12px 0 6px" }}>
@@ -898,8 +919,8 @@ function WorkflowManager({ workflows, workers, onBack, onRefresh }: {
 						</button>
 
 						<div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-							<button onClick={handleSave} disabled={saving} style={createBtnStyle(saving)}>
-								{saving ? "Saving..." : "Save"}
+							<button onClick={handleSave} disabled={saving || !dirty} style={createBtnStyle(saving, savedOk, dirty)}>
+								{savedOk ? "Saved ✓" : saving ? "Saving..." : "Save"}
 							</button>
 							{selected && (
 								<>
@@ -965,14 +986,17 @@ const inputStyle: React.CSSProperties = {
 	outline: "none", boxSizing: "border-box",
 };
 
-function createBtnStyle(saving: boolean): React.CSSProperties {
+function createBtnStyle(saving: boolean, savedOk?: boolean, dirty?: boolean): React.CSSProperties {
 	return {
 		padding: "6px 14px",
-		background: saving ? "var(--bg-hover)" : "var(--accent)",
-		border: "none", borderRadius: 7,
-		color: saving ? "var(--text-muted)" : "#fff",
-		cursor: saving ? "default" : "pointer", fontSize: 12,
+		background: saving ? "var(--bg-hover)" : savedOk ? "rgba(74,222,128,0.18)" : dirty ? "var(--accent)" : "var(--bg-hover)",
+		border: savedOk ? "1px solid rgba(74,222,128,0.4)" : "none",
+		borderRadius: 7,
+		color: saving ? "var(--text-muted)" : savedOk ? "#4ade80" : dirty ? "#fff" : "var(--text-dim)",
+		cursor: saving || !dirty ? "default" : "pointer",
+		fontSize: 12,
 		fontWeight: 600,
+		transition: "background 0.2s, color 0.2s, border-color 0.2s",
 	};
 }
 
