@@ -1,9 +1,15 @@
 export async function register() {
 	if (process.env.NEXT_RUNTIME === "nodejs") {
 		const { startFeishuBot } = await import("./lib/feishu-bot");
-		const bot = await startFeishuBot();
-		if (bot) {
+		const feishuBot = await startFeishuBot();
+		if (feishuBot) {
 			console.log("[feishu-bot] Started successfully");
+		}
+
+		const { startWecomBot } = await import("./lib/wecom-bot");
+		const wecomBot = await startWecomBot();
+		if (wecomBot) {
+			console.log("[wecom-bot] Started successfully");
 		}
 	}
 }
