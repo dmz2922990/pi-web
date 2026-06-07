@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SSH Remote Agent Architecture - pi-web x pi-agent</title>
+<style>
+:root {
+  --pi-web: #3b82f6;
+  --pi-agent: #8b5cf6;
+  --ssh2: #f59e0b;
+  --remote: #ef4444;
+  --bg: #0f172a;
+  --bg2: #1e293b;
+  --bg3: #334155;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --border: #475569;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+.container { max-width: 1100px; margin: 0 auto; padding: 40px 24px; }
+h1 { font-size: 28px; margin-bottom: 8px; }
+h1 span { font-weight: 400; font-size: 16px; color: var(--text-dim); }
+h2 { font-size: 20px; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; margin: 20px 0 10px; color: var(--text-dim); }
+
+/* Legend */
+.legend { display: flex; gap: 20px; margin: 20px 0 32px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.legend-dot { width: 14px; height: 14px; border-radius: 3px; }
+
+/* Flow diagram */
+.flow { display: flex; flex-direction: column; gap: 0; align-items: center; }
+.flow-row { display: flex; align-items: center; gap: 0; width: 100%; }
+.flow-box {
+  padding: 14px 18px; border-radius: 8px; font-size: 13px;
+  border-left: 4px solid; background: var(--bg2);
+  flex: 1; min-width: 0;
+}
+.flow-box.pi-web { border-left-color: var(--pi-web); }
+.flow-box.pi-agent { border-left-color: var(--pi-agent); }
+.flow-box.ssh2 { border-left-color: var(--ssh2); }
+.flow-box .title { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+.flow-box .sub { color: var(--text-dim); font-size: 11.5px; }
+.flow-box code { font-size: 11px; background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-family: 'SF Mono', monospace; }
+
+.flow-arrow { text-align: center; padding: 6px 0; color: var(--text-dim); font-size: 18px; }
+.flow-arrow span { font-size: 11px; display: block; margin-top: -2px; }
+
+/* Layer cards */
+.layers { display: flex; flex-direction: column; gap: 16px; }
+.layer {
+  border-radius: 10px; border: 1px solid var(--border); overflow: hidden;
+}
+.layer-header {
+  padding: 12px 18px; font-weight: 700; font-size: 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.layer-header.pi-web { background: rgba(59,130,246,0.12); color: var(--pi-web); }
+.layer-header.pi-agent { background: rgba(139,92,246,0.12); color: var(--pi-agent); }
+.layer-body { padding: 16px 18px; font-size: 13px; }
+.layer-body ul { margin: 6px 0 0 18px; }
+.layer-body li { margin: 4px 0; }
+.layer-body code { font-size: 11.5px; background: var(--bg3); padding: 1px 5px; border-radius: 3px; font-family: 'SF Mono', monospace; }
+
+/* Interface table */
+table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12.5px; }
+th { background: var(--bg3); padding: 8px 12px; text-align: left; font-weight: 600; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); }
+td code { font-size: 11px; }
+.tag { display: inline-block; padding: 1px 7px; border-radius: 3px; font-size: 10.5px; font-weight: 600; }
+.tag.pi-web { background: rgba(59,130,246,0.15); color: var(--pi-web); }
+.tag.pi-agent { background: rgba(139,92,246,0.15); color: var(--pi-agent); }
+.tag.ssh2 { background: rgba(245,158,11,0.15); color: var(--ssh2); }
+
+/* Big flow */
+.big-flow {
+  background: var(--bg2); border-radius: 10px; padding: 24px;
+  border: 1px solid var(--border); margin: 20px 0;
+}
+.bf-row { display: flex; align-items: stretch; gap: 12px; margin-bottom: 8px; }
+.bf-col { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.bf-box {
+  padding: 10px 14px; border-radius: 6px; font-size: 12px;
+  border: 1px solid var(--border); position: relative;
+}
+.bf-box .bf-label { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+.bf-box .bf-detail { color: var(--text-dim); font-size: 11px; }
+.bf-box .bf-tag { position: absolute; top: 6px; right: 8px; }
+.bf-connector { display: flex; align-items: center; justify-content: center; width: 32px; color: var(--text-dim); font-size: 16px; flex-shrink: 0; }
+
+/* Summary */
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+.summary-card { background: var(--bg2); border-radius: 8px; padding: 16px; border: 1px solid var(--border); }
+.summary-card h4 { font-size: 14px; margin-bottom: 10px; }
+.summary-card ul { margin-left: 16px; font-size: 12.5px; }
+.summary-card li { margin: 4px 0; }
+
+@media (max-width: 700px) {
+  .summary-grid { grid-template-columns: 1fr; }
+  .bf-row { flex-direction: column; }
+  .bf-connector { transform: rotate(90deg); width: auto; height: 24px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>SSH Remote Agent Architecture <span>pi-web x pi-agent</span></h1>
+<p style="color:var(--text-dim);font-size:14px;margin-bottom:12px;">
+  How the system achieves transparent remote execution — agent runs code on a remote machine without knowing it.
+</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--pi-web)"></div> pi-web (this project)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--pi-agent)"></div> pi-agent SDK</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--ssh2)"></div> ssh2 library</div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--remote)"></div> Remote server</div>
+</div>
+
+<!-- ===== LAYER OVERVIEW ===== -->
+<h2>Layer Overview</h2>
+<div class="layers">
+
+  <div class="layer">
+    <div class="layer-header pi-agent">
+      <span>Layer 1</span> pi-agent SDK — Interfaces & Tool Factory
+    </div>
+    <div class="layer-body">
+      <p>Defines <strong>7 pluggable operation interfaces</strong> (Strategy Pattern). Each built-in tool (bash, read, write, edit, grep, find, ls) delegates all I/O to an injected <code>operations</code> object.</p>
+      <ul>
+        <li><code>BashOperations</code> — <code>exec(command, cwd, options)</code></li>
+        <li><code>ReadOperations</code> — <code>readFile()</code>, <code>access()</code>, <code>detectImageMimeType()</code></li>
+        <li><code>WriteOperations</code> — <code>writeFile()</code>, <code>mkdir()</code></li>
+        <li><code>EditOperations</code> — <code>readFile()</code>, <code>writeFile()</code>, <code>access()</code></li>
+        <li><code>GrepOperations</code> — <code>isDirectory()</code>, <code>readFile()</code></li>
+        <li><code>FindOperations</code> — <code>exists()</code>, <code>glob()</code></li>
+        <li><code>LsOperations</code> — <code>exists()</code>, <code>stat()</code>, <code>readdir()</code></li>
+      </ul>
+      <p style="margin-top:8px">Factory: <code>createCodingTools(cwd, ToolsOptions)</code> → returns tool instance array. When <code>ToolsOptions.bash.operations = myOps</code>, the bash tool calls <code>myOps.exec()</code> instead of local <code>child_process</code>.</p>
+    </div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-header pi-web">
+      <span>Layer 2</span> pi-web — SSH Operations Implementation
+    </div>
+    <div class="layer-body">
+      <p><code>ssh-operations.ts</code> implements all 7 interfaces using SSH commands:</p>
+      <table>
+        <tr><th>Interface Method</th><th>SSH Implementation</th></tr>
+        <tr><td><code>bash.exec()</code></td><td><code>ssh2.Client.exec()</code> shell command</td></tr>
+        <tr><td><code>read.readFile()</code></td><td><code>ssh2 SFTP createReadStream</code></td></tr>
+        <tr><td><code>write.writeFile()</code></td><td><code>echo BASE64 | base64 -d > file</code> via shell <span style="color:var(--text-dim)">(SFTP write hangs on some servers)</span></td></tr>
+        <tr><td><code>write.mkdir()</code></td><td><code>mkdir -p</code> via shell</td></tr>
+        <tr><td><code>find.glob()</code></td><td><code>find &lt;cwd&gt; -name &lt;pat&gt; -type f | head</code></td></tr>
+        <tr><td><code>ls.*</code></td><td><code>SFTP stat/readdir</code></td></tr>
+        <tr><td><code>*.exists()</code></td><td><code>test -e</code> via shell</td></tr>
+      </table>
+      <p><code>ssh-tool-factory.ts</code> bridges Layer 1 & 2: <code>createSshTools(cwd, sshConn)</code> → builds <code>ToolsOptions</code> with all SSH ops → calls <code>createCodingTools()</code>.</p>
+    </div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-header pi-web">
+      <span>Layer 3</span> pi-web — Orchestration (BubbleManager)
+    </div>
+    <div class="layer-body">
+      <p><code>BubbleManager</code> decides local vs remote and wires everything:</p>
+      <ul>
+        <li>Reads <code>hostSelections</code> from user input → resolves <code>HostConfig</code> → converts to <code>SshConfig</code></li>
+        <li>If <code>executionMode === "ssh"</code>: creates <code>SshConnection</code> → <code>createSshTools()</code> → <code>createAgentSession({ noTools: "builtin", customTools: sshTools })</code></li>
+        <li>If local: standard <code>createAgentSession()</code> with built-in tools</li>
+        <li>Manages SSH lifecycle (connect, reconnect, disconnect on destroy)</li>
+        <li>Persists <code>hostId</code> in bubble data for restart recovery</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="layer">
+    <div class="layer-header ssh2">
+      <span>Layer 4</span> ssh2 — Transport Layer
+    </div>
+    <div class="layer-body">
+      <p><code>ssh2</code> npm package provides the SSH protocol implementation (TCP → encrypted channel → shell/SFTP). <code>SshConnection</code> wraps it with:</p>
+      <ul>
+        <li>Auto-reconnect on disconnect</li>
+        <li>Keepalive (15s interval)</li>
+        <li>Password and privateKey auth</li>
+        <li>60s timeout on exec/read/write</li>
+        <li>Shell escape for paths with special chars</li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== END-TO-END FLOW ===== -->
+<h2>End-to-End Data Flow</h2>
+<p style="color:var(--text-dim);font-size:13px;margin-bottom:16px;">From "user selects a remote host in UI" to "agent edits a file on the remote machine"</p>
+
+<div class="big-flow">
+
+  <div class="bf-row">
+    <div class="bf-col">
+      <div class="bf-box" style="border-left:3px solid var(--pi-web)">
+        <span class="bf-tag"><span class="tag pi-web">pi-web</span></span>
+        <div class="bf-label">User selects remote host</div>
+        <div class="bf-detail">UI: BubbleCreateDialog → hostSelections[workerName] = hostId</div>
+      </div>
+    </div>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:14px;padding:2px 0">↓</div>
+
+  <div class="bf-row">
+    <div class="bf-col">
+      <div class="bf-box" style="border-left:3px solid var(--pi-web)">
+        <span class="bf-tag"><span class="tag pi-web">pi-web</span></span>
+        <div class="bf-label">POST /api/bubbles</div>
+        <div class="bf-detail">bubbles/route.ts → startBubble(id, msg, model, template, hostSelections)</div>
+      </div>
+    </div>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:14px;padding:2px 0">↓</div>
+
+  <div class="bf-row">
+    <div class="bf-col">
+      <div class="bf-box" style="border-left:3px solid var(--pi-web)">
+        <span class="bf-tag"><span class="tag pi-web">pi-web</span></span>
+        <div class="bf-label">Resolve SSH Config</div>
+        <div class="bf-detail">hostId → getHost() → HostConfig → SshConfig { host, port, user, password/privateKey, remoteCwd }</div>
+      </div>
+    </div>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:14px;padding:2px 0">↓</div>
+
+  <div class="bf-row">
+    <div class="bf-col" style="flex:1.2">
+      <div class="bf-box" style="border-left:3px solid var(--pi-web)">
+        <span class="bf-tag"><span class="tag pi-web">pi-web</span></span>
+        <div class="bf-label">BubbleManager.createWorkerFromConfig()</div>
+        <div class="bf-detail">wc.executionMode === "ssh" && wc.ssh</div>
+      </div>
+    </div>
+    <div class="bf-connector">→</div>
+    <div class="bf-col" style="flex:1.2">
+      <div class="bf-box" style="border-left:3px solid var(--ssh2)">
+        <span class="bf-tag"><span class="tag ssh2">ssh2</span></span>
+        <div class="bf-label">new SshConnection(config)</div>
+        <div class="bf-detail">ssh2.Client → TCP connect → SSH handshake → auth</div>
+      </div>
+    </div>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:14px;padding:2px 0">↓</div>
+
+  <div class="bf-row">
+    <div class="bf-col" style="flex:1">
+      <div class="bf-box" style="border-left:3px solid var(--pi-web)">
+        <span class="bf-tag"><span class="tag pi-web">pi-web</span></span>
+        <div class="bf-label">createSshTools(cwd, conn)</div>
+        <div class="bf-detail">createSshOperations(conn) → 7 Operations objects<br>→ ToolsOptions → createCodingTools()</div>
+      </div>
+    </div>
+    <div class="bf-connector">→</div>
+    <div class="bf-col" style="flex:1">
+      <div class="bf-box" style="border-left:3px solid var(--pi-agent)">
+        <span class="bf-tag"><span class="tag pi-agent">pi-agent</span></span>
+        <div class="bf-label">createCodingTools(cwd, opts)</div>
+        <div class="bf-detail">Generates bash/read/write/edit/grep/find/ls tools<br>All I/O → opts.*.operations (SSH)</div>
+      </div>
+    </div>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:14px;padding:2px 0">↓</div>
+
+  <div class="bf-row">
+    <div class="bf-col">
+      <div class="bf-box" style="border-left:3px solid var(--pi-agent)">
+        <span class="bf-tag"><span class="tag pi-agent">pi-agent</span></span>
+        <div class="bf-label">createAgentSession()</div>
+        <div class="bf-detail">noTools: "builtin" — disable local tools<br>customTools: sshTools — inject SSH tools<br>→ AgentSession is created, agent has no idea it's remote</div>
+      </div>
+    </div>
+  </div>
+  <div style="text-align:center;color:var(--text-dim);font-size:14px;padding:2px 0">↓</div>
+
+  <div class="bf-row">
+    <div class="bf-col" style="flex:1">
+      <div class="bf-box" style="border-left:3px solid var(--pi-agent)">
+        <span class="bf-tag"><span class="tag pi-agent">pi-agent</span></span>
+        <div class="bf-label">Agent calls a tool</div>
+        <div class="bf-detail">e.g. edit_tool → reads file, computes diff, writes file</div>
+      </div>
+    </div>
+    <div class="bf-connector">→</div>
+    <div class="bf-col" style="flex:0.6">
+      <div class="bf-box" style="border-left:3px solid var(--pi-web)">
+        <span class="bf-tag"><span class="tag pi-web">pi-web</span></span>
+        <div class="bf-label">operations.edit</div>
+        <div class="bf-detail">readFile() → SFTP<br>writeFile() → shell base64</div>
+      </div>
+    </div>
+    <div class="bf-connector">→</div>
+    <div class="bf-col" style="flex:0.6">
+      <div class="bf-box" style="border-left:3px solid var(--remote)">
+        <span class="bf-tag" style="color:var(--remote)"><span class="tag" style="background:rgba(239,68,68,0.15);color:var(--remote)">remote</span></span>
+        <div class="bf-label">SSH Server</div>
+        <div class="bf-detail">File is read/modified/written on the remote machine</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ===== RESPONSIBILITY MATRIX ===== -->
+<h2>Responsibility Matrix</h2>
+
+<div class="summary-grid">
+  <div class="summary-card" style="border-top:3px solid var(--pi-agent)">
+    <h4 style="color:var(--pi-agent)">pi-agent SDK provides</h4>
+    <ul>
+      <li><strong>Operations interfaces</strong> — 7 abstract contracts for I/O</li>
+      <li><strong>ToolsOptions injection point</strong> — <code>{ bash: { operations: ... } }</code></li>
+      <li><code>createCodingTools()</code> — tool factory accepting injected ops</li>
+      <li><code>createAgentSession()</code> — session factory accepting custom tools</li>
+      <li><strong>Agent runtime</strong> — LLM loop, tool calling, streaming</li>
+      <li><strong>Tool logic</strong> — edit computes diff, grep does pattern matching, etc.</li>
+    </ul>
+  </div>
+  <div class="summary-card" style="border-top:3px solid var(--pi-web)">
+    <h4 style="color:var(--pi-web)">pi-web provides</h4>
+    <ul>
+      <li><strong>SSH transport</strong> — <code>SshConnection</code> (connect, exec, SFTP, reconnect)</li>
+      <li><strong>Operations impl</strong> — all 7 interfaces backed by SSH</li>
+      <li><strong>Orchestration</strong> — BubbleManager decides local/remote per worker</li>
+      <li><strong>Host management</strong> — CRUD for SSH host configs in UI</li>
+      <li><strong>Session persistence</strong> — saves hostId, restores on restart</li>
+      <li><strong>Bridge factory</strong> — <code>createSshTools()</code> wires ops → SDK</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ===== KEY INSIGHT ===== -->
+<h2>Key Design Insight</h2>
+<div style="background:var(--bg2);border-radius:10px;padding:20px;border:1px solid var(--border);margin:16px 0;">
+  <p style="font-size:14px;margin-bottom:12px;"><strong>The agent is completely unaware it's running remotely.</strong></p>
+  <p style="font-size:13px;color:var(--text-dim);">
+    pi-agent's tools never call <code>fs</code> or <code>child_process</code> directly — they call <code>operations.readFile()</code>, <code>operations.exec()</code>, etc. pi-web injects SSH-backed implementations. The LLM generates the same tool calls regardless of where execution happens.
+  </p>
+  <p style="font-size:13px;color:var(--text-dim);margin-top:10px;">
+    This means: <strong>adding a new transport</strong> (Docker, Kubernetes, WebSocket) only requires implementing the 7 Operations interfaces — no changes to pi-agent or the agent's behavior.
+  </p>
+</div>
+
+</div>
+</body>
+</html>
