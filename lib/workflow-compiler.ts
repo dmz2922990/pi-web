@@ -37,6 +37,7 @@ export function validateWorkflow(
 export function compileWorkflowToPrompt(
 	workflow: WorkflowDefinition,
 	workers: Record<string, WorkerDefinition>,
+	workerPaths?: Record<string, string>,
 ): string {
 	const parts: string[] = [];
 
@@ -49,7 +50,12 @@ export function compileWorkflowToPrompt(
 	const uniqueWorkers = getWorkflowWorkerNames(workflow);
 	for (const name of uniqueWorkers) {
 		const w = workers[name];
-		parts.push(`- invoke_${name}: ${w?.label ?? name}`);
+		const path = workerPaths?.[name];
+		parts.push(`- invoke_${name}: ${w?.label ?? name}${path ? ` (working directory: ${path})` : ""}`);
+	}
+	if (workerPaths && Object.keys(workerPaths).length > 0) {
+		parts.push("");
+		parts.push("IMPORTANT: Each worker operates in its own working directory shown above. When constructing tasks for a worker, reference files and paths relative to THAT worker's working directory, NOT the gateway's directory.");
 	}
 
 	// 3. Execution flow (walk the graph from entryStep)

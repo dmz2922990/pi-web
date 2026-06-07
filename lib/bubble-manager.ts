@@ -102,8 +102,12 @@ export class BubbleManager {
 		if (this.isWorkflowMode()) {
 			const workersObj: Record<string, WorkerDefinition> = {};
 			for (const [name, w] of this.workflowWorkers) workersObj[name] = w;
+			const wPaths: Record<string, string> = {};
+			for (const [name, wc] of this.workerConfigs) {
+				wPaths[name] = wc.ssh?.remoteCwd ?? this.bubble.cwd;
+			}
 			gatewayPrompt = this.interpolateEnv(
-				compileWorkflowToPrompt(this.workflow!, workersObj),
+				compileWorkflowToPrompt(this.workflow!, workersObj, wPaths),
 			);
 		} else {
 			gatewayPrompt = this.interpolateEnv(this.template!.gateway.systemPrompt);

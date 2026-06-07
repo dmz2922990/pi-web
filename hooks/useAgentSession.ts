@@ -587,7 +587,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           if (agentState.state.systemPrompt !== undefined) setSystemPrompt(agentState.state.systemPrompt ?? null);
           if (agentState.state.thinkingLevel !== undefined) setThinkingLevel((agentState.state.thinkingLevel as ThinkingLevelOption) ?? "auto");
           const rawModel = (agentState.state as { model?: { provider: string; modelId?: string; id?: string } | null }).model;
-          if (rawModel) setCurrentModelOverride({ provider: rawModel.provider, modelId: rawModel.modelId ?? rawModel.id });
+          if (rawModel) setCurrentModelOverride({ provider: rawModel.provider, modelId: rawModel.modelId ?? rawModel.id ?? "" });
         }
       });
     }
