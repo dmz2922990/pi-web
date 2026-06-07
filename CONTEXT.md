@@ -55,6 +55,18 @@ _Avoid_: new bubble wizard, bubble setup
 **Auto-run**:
 All worker sessions run in auto-run mode — no human confirmation needed for tool calls. Workers execute autonomously within their constrained tool set.
 
+**Channel**:
+An IM platform integration that allows users to interact with pi-web sessions and bubbles through a messaging app. Each Channel is backed by one **Bot** implementation. Multiple Channels can run simultaneously. Configured via separate config files in `~/.pi/agent/`.
+_Avoid_: connector, integration, messenger
+
+**Bot**:
+A runtime component that manages the connection to a specific IM platform, receives messages, parses commands, and forwards them to pi-web sessions/bubbles. Each Bot extends `BaseBot` which provides shared command parsing, target resolution, and session/bubble interaction logic. Concrete Bots implement the transport layer (e.g., file polling for Feishu, WebSocket for WeCom). Managed as global singletons in `globalThis`.
+_Avoid_: agent, client, adapter, service
+
+**BaseBot**:
+An abstract base class providing the shared behavior for all **Bot** implementations: command parsing (`/s`, `/b`, `#target`), target resolution, session/bubble message forwarding, and reply extraction. Concrete subclasses implement transport-specific logic (event receiving, message sending, connection lifecycle).
+_Avoid_: bot base, abstract bot, bot interface
+
 ## Relationships
 
 - A **Worker** is a standalone, reusable definition stored in `~/.pi/agent/workers/`
@@ -69,6 +81,12 @@ All worker sessions run in auto-run mode — no human confirmation needed for to
 - **Export** bundles a Workflow + all referenced Workers into a single `*.pi-workflow.json` file
 - **Import** extracts Workers to `~/.pi/agent/workers/` (user resolves name conflicts) and Workflow to `~/.pi/agent/workflows/`
 - Old **Templates** are auto-migrated to Worker + Workflow format on first load (linear chain default)
+- A **Channel** is a per-platform IM integration; each Channel has one **Bot** singleton
+- **BaseBot** provides shared command parsing and session/bubble interaction; concrete Bots implement the transport layer
+- Multiple **Channels** can run simultaneously, sharing the same global session/bubble registries
+- Each **Channel** has its own config file (`~/.pi/agent/<channel>-config.json`) and API route (`/api/<channel>/`)
+- A **Bot** receives messages, parses commands (`/s`, `/b`, `#target`), resolves targets, and forwards to sessions/bubbles
+- Bot reply flow: send "processing..." ack → subscribe to agent events → wait for `agent_end` → extract and send final reply
 
 ## Example Dialogue
 
