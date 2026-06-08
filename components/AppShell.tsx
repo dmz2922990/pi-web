@@ -683,21 +683,13 @@ export function AppShell() {
                         )}
 
                         {/* Add form */}
-                        <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: 4, letterSpacing: 0.3 }}>
-                          ┌───────── Minute (0-59)
-                          <br />
-                          │ ┌─────── Hour (0-23)
-                          <br />
-                          │ │ ┌───── Day (1-31)
-                          <br />
-                          │ │ │ ┌─── Month (1-12)
-                          <br />
-                          │ │ │ │ ┌─ Weekday (0-6)
-                          <br />
-                          │ │ │ │ │
-                          <br />
-                          * * * * *
-                        </div>
+                        <pre style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", margin: "0 0 4px 0", lineHeight: 1.4, userSelect: "none" }}>{`┌────── Minute (0-59)
+│ ┌──── Hour (0-23)
+│ │ ┌── Day (1-31)
+│ │ │ ┌ Month (1-12)
+│ │ │ │ ┌ Weekday (0-6)
+│ │ │ │ │
+* * * * *`}</pre>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <input
                             value={cronFormCron}
