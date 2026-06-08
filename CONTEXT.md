@@ -67,6 +67,14 @@ _Avoid_: agent, client, adapter, service
 An abstract base class providing the shared behavior for all **Bot** implementations: command parsing (`/s`, `/b`, `#target`), target resolution, session/bubble message forwarding, and reply extraction. Concrete subclasses implement transport-specific logic (event receiving, message sending, connection lifecycle).
 _Avoid_: bot base, abstract bot, bot interface
 
+**CronTask**:
+A scheduled, recurring prompt bound to a specific session or bubble Gateway. Defined by a cron expression and a prompt string. When triggered, the prompt is sent to the target session/bubble via the same code path as `#target msg`, but the Agent's reply is only recorded in the session — no IM notification. Managed via IM commands (`#target /c add/list/del`) and the session UI Crontab tab. Persisted as individual JSON files in `~/.pi/agent/pi-web-crontab/`. Automatically deleted when the associated session or bubble is deleted.
+_Avoid_: cron job, scheduled task, timer, alarm
+
+**CronScheduler**:
+A process-level singleton that loads all **CronTasks** from disk at startup, maintains in-memory cron timers, and triggers execution at the scheduled time. Uses `getOrCreateWrapper` + `send({ type: "prompt" })` to execute, with per-session serial queues to prevent concurrent prompts. Survives hot-reload via `globalThis`.
+_Avoid_: cron engine, task runner, scheduler service
+
 ## Relationships
 
 - A **Worker** is a standalone, reusable definition stored in `~/.pi/agent/workers/`
@@ -87,6 +95,14 @@ _Avoid_: bot base, abstract bot, bot interface
 - Each **Channel** has its own config file (`~/.pi/agent/<channel>-config.json`) and API route (`/api/<channel>/`)
 - A **Bot** receives messages, parses commands (`/s`, `/b`, `#target`), resolves targets, and forwards to sessions/bubbles
 - Bot reply flow: send "processing..." ack → subscribe to agent events → wait for `agent_end` → extract and send final reply
+- A **CronTask** is bound to one session or bubble Gateway; its prompt is sent as if a user typed `#target msg`
+- **CronTask** replies are only recorded in the session file; no IM push notification
+- Multiple **CronTasks** can be attached to the same session/bubble; execution is serial (queued per session)
+- **CronTasks** are persisted in `~/.pi/agent/pi-web-crontab/`; one JSON file per task
+- **CronScheduler** is a global singleton that loads tasks at startup and triggers them via cron timers
+- Deleting a session or bubble automatically deletes all associated **CronTasks**
+- **CronTask** management via IM: `#target /c add "cron-expr" prompt`, `#target /c list`, `#target /c del #N`
+- **CronTask** management via UI: Crontab tab on the session conversation page (next to System tab)
 
 ## Example Dialogue
 
