@@ -9,6 +9,12 @@ export function getSessionsDir(): string {
   return `${getAgentDir()}/sessions`;
 }
 
+// Extract UUID from session file path (e.g., "..._019ea4fa-...-.jsonl" → "019ea4fa-...")
+function extractSessionIdFromPath(filePath: string): string | null {
+	const match = filePath.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/);
+	return match?.[1] ?? null;
+}
+
 export async function listAllSessions(): Promise<SessionInfo[]> {
   const piSessions: PiSessionInfo[] = await SessionManager.listAll();
   const pathToId = new Map<string, string>();
@@ -18,6 +24,11 @@ export async function listAllSessions(): Promise<SessionInfo[]> {
   return piSessions.map((s) => {
     // Populate path cache so resolveSessionPath works without a full scan
     cache.set(s.id, s.path);
+    // Also index by filename-derived ID to handle header/filename mismatches
+    const filenameId = extractSessionIdFromPath(s.path);
+    if (filenameId && filenameId !== s.id) {
+      cache.set(filenameId, s.path);
+    }
     return {
       path: s.path,
       id: s.id,
