@@ -38,6 +38,9 @@ export const HELP_TEXT = `pi-web Bot Commands:
 /b list - List bubbles
 #1 hello - Send to #1 session/bubble
 #abc1 hello - Send by ID prefix
+#1 /c add "0 9 * * *" prompt - Add cron task
+#1 /c list - List cron tasks
+#1 /c del 1 - Delete cron task #1
 /help - Show this help
 
 Tip: #number is stable (sorted by creation time).`;
@@ -345,6 +348,18 @@ export abstract class BaseBot<TStatus> {
 	// ---- Concrete: send message to session/bubble and wait for reply ----
 
 	protected async executeTargetedMessage(chatId: string, target: string, message: string): Promise<void> {
+		// Intercept /c (crontab) commands before normal prompt handling
+		const cronCmd = this.tryParseCronCommand(message);
+		if (cronCmd) {
+			const resolved = await this.resolveTarget(target, chatId);
+			if (!resolved) {
+				await this.sendError(chatId, `Target not found: ${target}`);
+				return;
+			}
+			await this.executeCronCommand(chatId, resolved, cronCmd);
+			return;
+		}
+
 		const resolved = await this.resolveTarget(target, chatId);
 		if (!resolved) {
 			await this.sendError(chatId, `Target not found: ${target}`);
@@ -529,5 +544,76 @@ export abstract class BaseBot<TStatus> {
 
 	protected escapeMarkdown(text: string): string {
 		return text.replace(/([*_`\[\]#])/g, "\\$1");
+	}
+
+	// ---- Crontab command parsing ----
+
+	private tryParseCronCommand(text: string): { action: "add"; cron: string; prompt: string } | { action: "list" } | { action: "del"; index: number } | null {
+		const t = text.trim();
+
+		if (t === "/c list") return { action: "list" };
+
+		const delMatch = t.match(/^\/c\s+del\s+#?(\d+)$/i);
+		if (delMatch) return { action: "del", index: parseInt(delMatch[1], 10) };
+
+		// /c add "CRON_EXPR" PROMPT_TEXT
+		const addMatch = t.match(/^\/c\s+add\s+"([^"]+)"\s+([\s\S]+)$/);
+		if (addMatch) return { action: "add", cron: addMatch[1], prompt: addMatch[2].trim() };
+
+		// Also accept /c add 'CRON_EXPR' PROMPT_TEXT (single quotes)
+		const addMatch2 = t.match(/^\/c\s+add\s+'([^']+)'\s+([\s\S]+)$/);
+		if (addMatch2) return { action: "add", cron: addMatch2[1], prompt: addMatch2[2].trim() };
+
+		return null;
+	}
+
+	private async executeCronCommand(
+		chatId: string,
+		resolved: ResolvedTarget,
+		cmd: { action: "add"; cron: string; prompt: string } | { action: "list" } | { action: "del"; index: number },
+	): Promise<void> {
+		const { CronScheduler } = await import("./cron-scheduler");
+		const scheduler = CronScheduler.getInstance();
+		const targetId = resolved.bubbleId ?? resolved.sessionId;
+		const targetType = resolved.type;
+		const targetName = resolved.name;
+
+		switch (cmd.action) {
+			case "add": {
+				const result = scheduler.addTask(targetId, targetType, targetName, cmd.cron, cmd.prompt);
+				if ("error" in result) {
+					await this.sendError(chatId, result.error);
+				} else {
+					await this.sendReply(chatId, `✅ Cron task added for **${targetName}**\nSchedule: \`${cmd.cron}\`\nPrompt: ${cmd.prompt}`);
+				}
+				break;
+			}
+			case "list": {
+				const tasks = scheduler.getTasksByTarget(targetId);
+				if (tasks.length === 0) {
+					await this.sendText(chatId, `No cron tasks for ${targetName}.`);
+					return;
+				}
+				const lines = tasks.map((t, i) => {
+					const status = t.lastStatus === "success" ? "✅" : t.lastStatus === "error" ? "❌" : t.lastStatus === "timeout" ? "⏰" : "⏳";
+					const lastRun = t.lastRunAt ? new Date(t.lastRunAt).toLocaleString() : "never";
+					return `${i + 1}. \`${t.cron}\` ${t.prompt.slice(0, 40)}${t.prompt.length > 40 ? "..." : ""} ${status} (last: ${lastRun})`;
+				});
+				await this.sendText(chatId, `Cron tasks for ${targetName}:\n` + lines.join("\n"));
+				break;
+			}
+			case "del": {
+				const tasks = scheduler.getTasksByTarget(targetId);
+				const index = cmd.index - 1;
+				if (index < 0 || index >= tasks.length) {
+					await this.sendError(chatId, `Invalid task number. Use 1-${tasks.length}.`);
+					return;
+				}
+				const task = tasks[index];
+				scheduler.removeTask(task.id);
+				await this.sendReply(chatId, `🗑️ Deleted cron task #${cmd.index} for **${targetName}**`);
+				break;
+			}
+		}
 	}
 }

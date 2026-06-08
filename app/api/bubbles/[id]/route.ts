@@ -66,6 +66,15 @@ export async function DELETE(
 		}
 
 		deleteBubbleStore(id);
+
+		// Clean up associated cron tasks
+		try {
+			const scheduler = (globalThis as Record<string, unknown>).__piCronScheduler as
+				| { removeTasksByTarget: (id: string) => number }
+				| undefined;
+			scheduler?.removeTasksByTarget(id);
+		} catch { /* non-critical */ }
+
 		return NextResponse.json({ success: true });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "Failed to delete bubble";

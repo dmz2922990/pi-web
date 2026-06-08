@@ -11,5 +11,8 @@ export async function register() {
 		if (wecomBot) {
 			console.log("[wecom-bot] Started successfully");
 		}
+
+		const { CronScheduler } = await import("./lib/cron-scheduler");
+		CronScheduler.getInstance().init();
 	}
 }

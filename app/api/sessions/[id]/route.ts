@@ -147,6 +147,15 @@ export async function DELETE(
     getRpcSession(id)?.destroy();
     unlinkSync(filePath);
     invalidateSessionPathCache(id);
+
+    // Clean up associated cron tasks
+    try {
+      const scheduler = (globalThis as Record<string, unknown>).__piCronScheduler as
+        | { removeTasksByTarget: (id: string) => number }
+        | undefined;
+      scheduler?.removeTasksByTarget(id);
+    } catch { /* non-critical */ }
+
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

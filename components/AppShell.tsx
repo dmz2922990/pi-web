@@ -64,11 +64,28 @@ export function AppShell() {
     setContextUsage(usage);
   }, []);
 
+  // Crontab panel state
+  interface CronTaskUI { id: string; targetId: string; targetType: "session" | "bubble"; targetName: string; cron: string; prompt: string; createdAt: string; lastRunAt: string | null; lastStatus: "success" | "error" | "timeout" | null }
+  const [cronTasks, setCronTasks] = useState<CronTaskUI[]>([]);
+  const [cronFormCron, setCronFormCron] = useState("0 9 * * *");
+  const [cronFormPrompt, setCronFormPrompt] = useState("");
+  const [cronFormSubmitting, setCronFormSubmitting] = useState(false);
+
+  const fetchCronTasks = useCallback(async (targetId: string) => {
+    try {
+      const res = await fetch(`/api/crontab?targetId=${encodeURIComponent(targetId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCronTasks(data.tasks ?? []);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   // Single active panel — only one dropdown open at a time
-  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | null>(null);
+  const [activeTopPanel, setActiveTopPanel] = useState<"branches" | "system" | "crontab" | null>(null);
   const [topPanelPos, setTopPanelPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const toggleTopPanel = useCallback((panel: "branches" | "system") => {
+  const toggleTopPanel = useCallback((panel: "branches" | "system" | "crontab") => {
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, []);
 
@@ -430,6 +447,31 @@ export function AppShell() {
                 </svg>
                 <span>System</span>
               </button>
+              <button
+                onClick={() => {
+                  toggleTopPanel("crontab");
+                  const targetId = selectedSession?.id;
+                  if (targetId) fetchCronTasks(targetId);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  height: "100%", padding: "0 12px",
+                  background: activeTopPanel === "crontab" ? "var(--bg-selected)" : "none",
+                  border: "none",
+                  borderTop: activeTopPanel === "crontab" ? "2px solid var(--accent)" : "2px solid transparent",
+                  borderRight: "1px solid var(--border)",
+                  cursor: "pointer",
+                  color: activeTopPanel === "crontab" ? "var(--text)" : "var(--text-muted)",
+                  fontSize: 11, whiteSpace: "nowrap", transition: "color 0.1s, background 0.1s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = "var(--text)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = activeTopPanel === "crontab" ? "var(--text)" : "var(--text-muted)"; }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span>Crontab</span>
+              </button>
             </div>
           )}
           {/* Session stats — right-aligned in top bar */}
@@ -554,6 +596,150 @@ export function AppShell() {
                   )}
                 </div>
               )}
+              {activeTopPanel === "crontab" && (() => {
+                const targetId = selectedSession?.id;
+                const targetType: "session" | "bubble" = "session";
+                const targetName = selectedSession?.id?.slice(0, 8) ?? "unknown";
+
+                const handleAddCronTask = async () => {
+                  if (!targetId || !cronFormCron.trim() || !cronFormPrompt.trim()) return;
+                  setCronFormSubmitting(true);
+                  try {
+                    const res = await fetch("/api/crontab", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ targetId, targetType, targetName, cron: cronFormCron.trim(), prompt: cronFormPrompt.trim() }),
+                    });
+                    if (res.ok) {
+                      setCronFormPrompt("");
+                      await fetchCronTasks(targetId);
+                    }
+                  } finally {
+                    setCronFormSubmitting(false);
+                  }
+                };
+
+                const handleDeleteCronTask = async (taskId: string) => {
+                  if (!targetId) return;
+                  await fetch("/api/crontab", {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ taskId }),
+                  });
+                  await fetchCronTasks(targetId);
+                };
+
+                const statusIcon = (s: string | null) => {
+                  if (s === "success") return "✅";
+                  if (s === "error") return "❌";
+                  if (s === "timeout") return "⏰";
+                  return "⏳";
+                };
+
+                return (
+                  <div style={{ background: "var(--bg-panel)", borderBottom: "1px solid var(--border)" }}>
+                    {!targetId ? (
+                      <div style={{ padding: "10px 16px", fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+                        Select a session to manage cron tasks
+                      </div>
+                    ) : (
+                      <div style={{ padding: "12px 16px" }}>
+                        {/* Task list */}
+                        {cronTasks.length === 0 ? (
+                          <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic", marginBottom: 12 }}>
+                            No cron tasks for this session.
+                          </div>
+                        ) : (
+                          <div style={{ marginBottom: 12 }}>
+                            {cronTasks.map((task, i) => (
+                              <div key={task.id} style={{
+                                display: "flex", alignItems: "center", gap: 8,
+                                padding: "6px 0", borderBottom: i < cronTasks.length - 1 ? "1px solid var(--border)" : "none",
+                                fontSize: 12,
+                              }}>
+                                <span style={{ color: "var(--text-dim)", width: 20, flexShrink: 0, textAlign: "right" }}>{i + 1}.</span>
+                                <code style={{ color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 11, flexShrink: 0 }}>{task.cron}</code>
+                                <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                                  {task.prompt.slice(0, 60)}{task.prompt.length > 60 ? "..." : ""}
+                                </span>
+                                <span title={task.lastRunAt ? `Last run: ${new Date(task.lastRunAt).toLocaleString()}` : "Never run"} style={{ flexShrink: 0 }}>
+                                  {statusIcon(task.lastStatus)}
+                                </span>
+                                <button
+                                  onClick={() => handleDeleteCronTask(task.id)}
+                                  title="Delete task"
+                                  style={{
+                                    background: "none", border: "none", cursor: "pointer",
+                                    color: "var(--text-muted)", padding: "2px 4px", fontSize: 12, flexShrink: 0,
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Add form */}
+                        <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: 4, letterSpacing: 0.3 }}>
+                          ┌───────── Minute (0-59)
+                          <br />
+                          │ ┌─────── Hour (0-23)
+                          <br />
+                          │ │ ┌───── Day (1-31)
+                          <br />
+                          │ │ │ ┌─── Month (1-12)
+                          <br />
+                          │ │ │ │ ┌─ Weekday (0-6)
+                          <br />
+                          │ │ │ │ │
+                          <br />
+                          * * * * *
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <input
+                            value={cronFormCron}
+                            onChange={(e) => setCronFormCron(e.target.value)}
+                            placeholder="* * * * *"
+                            style={{
+                              width: 130, padding: "4px 8px", fontSize: 11,
+                              fontFamily: "var(--font-mono)",
+                              background: "var(--bg)", border: "1px solid var(--border)",
+                              borderRadius: 4, color: "var(--text)", outline: "none",
+                            }}
+                          />
+                          <input
+                            value={cronFormPrompt}
+                            onChange={(e) => setCronFormPrompt(e.target.value)}
+                            placeholder="Prompt to execute"
+                            onKeyDown={(e) => { if (e.key === "Enter") handleAddCronTask(); }}
+                            style={{
+                              flex: 1, padding: "4px 8px", fontSize: 11,
+                              background: "var(--bg)", border: "1px solid var(--border)",
+                              borderRadius: 4, color: "var(--text)", outline: "none", minWidth: 0,
+                            }}
+                          />
+                          <button
+                            onClick={handleAddCronTask}
+                            disabled={cronFormSubmitting || !cronFormCron.trim() || !cronFormPrompt.trim()}
+                            style={{
+                              padding: "4px 12px", fontSize: 11, borderRadius: 4,
+                              background: "var(--accent)", color: "#fff", border: "none",
+                              cursor: cronFormSubmitting ? "default" : "pointer",
+                              opacity: cronFormSubmitting || !cronFormCron.trim() || !cronFormPrompt.trim() ? 0.5 : 1,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {cronFormSubmitting ? "..." : "Add"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
