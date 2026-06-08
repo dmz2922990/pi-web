@@ -645,34 +645,34 @@ export function AppShell() {
                       </div>
                     ) : (
                       <div style={{ padding: "12px 16px" }}>
-                        {/* Add form — compact 5-column cron + prompt on one line */}
-                        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+                        {/* All rows share the same 7-column grid for pixel-perfect alignment */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 36px) 1fr auto", gap: "0 4px", alignItems: "end", marginBottom: 8 }}>
+                          {/* Row 1: Labels */}
+                          {["Min", "Hr", "Day", "Mon", "WD"].map((label) => (
+                            <span key={label} style={{ fontSize: 9, color: "var(--text-dim)", fontFamily: "var(--font-mono)", textAlign: "center" }}>{label}</span>
+                          ))}
+                          <span /> <span />
+                          {/* Row 2: Inputs + prompt + add */}
                           {cronFields.map((val, i) => (
-                            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                              <span style={{ fontSize: 9, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{["Min", "Hr", "Day", "Mon", "WD"][i]}</span>
-                              <input
-                                value={val}
-                                onChange={(e) => {
-                                  const next = [...cronFields];
-                                  next[i] = e.target.value;
-                                  setCronFields(next);
-                                }}
-                                placeholder="*"
-                                style={{
-                                  width: 36, padding: "4px 0", fontSize: 11, textAlign: "center",
-                                  fontFamily: "var(--font-mono)",
-                                  background: "var(--bg)", border: "1px solid var(--border)",
-                                  borderRadius: 4, color: "var(--text)", outline: "none",
-                                }}
-                              />
-                            </div>
+                            <input
+                              key={i}
+                              value={val}
+                              onChange={(e) => { const next = [...cronFields]; next[i] = e.target.value; setCronFields(next); }}
+                              placeholder="*"
+                              style={{
+                                padding: "4px 0", fontSize: 11, textAlign: "center",
+                                fontFamily: "var(--font-mono)",
+                                background: "var(--bg)", border: "1px solid var(--border)",
+                                borderRadius: 4, color: "var(--text)", outline: "none",
+                              }}
+                            />
                           ))}
                           <input
                             value={cronFormPrompt}
                             onChange={(e) => setCronFormPrompt(e.target.value)}
                             placeholder="Prompt to execute"
                             style={{
-                              flex: 1, padding: "4px 8px", fontSize: 11, minWidth: 100,
+                              padding: "4px 8px", fontSize: 11,
                               background: "var(--bg)", border: "1px solid var(--border)",
                               borderRadius: 4, color: "var(--text)", outline: "none",
                             }}
@@ -692,7 +692,7 @@ export function AppShell() {
                           </button>
                         </div>
 
-                        {/* Task list — 5-column cron aligned with inputs above */}
+                        {/* Task list — same 7-column grid */}
                         {cronTasks.length === 0 ? (
                           <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
                             No cron tasks for this session.
@@ -703,31 +703,34 @@ export function AppShell() {
                               const parts = task.cron.trim().split(/\s+/);
                               return (
                                 <div key={task.id} style={{
-                                  display: "flex", alignItems: "center", gap: 4,
+                                  display: "grid", gridTemplateColumns: "repeat(5, 36px) 1fr auto",
+                                  gap: "0 4px", alignItems: "center",
                                   padding: "5px 0", borderBottom: i < cronTasks.length - 1 ? "1px solid var(--border)" : "none",
                                   fontSize: 12,
                                 }}>
-                                  <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text)", whiteSpace: "nowrap" }}>
-                                    {parts.map((p, ci) => <span key={ci} style={{ display: "inline-block", width: 36, textAlign: "center" }}>{p}</span>)}
-                                  </code>
-                                  <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 4 }}>
+                                  {[0,1,2,3,4].map(ci => (
+                                    <code key={ci} style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: 11 }}>{parts[ci] ?? "*"}</code>
+                                  ))}
+                                  <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                     {task.prompt.slice(0, 40)}{task.prompt.length > 40 ? "..." : ""}
                                   </span>
-                                  <span title={task.lastRunAt ? `Last run: ${new Date(task.lastRunAt).toLocaleString()}` : "Never run"} style={{ flexShrink: 0 }}>
-                                    {statusIcon(task.lastStatus)}
+                                  <span style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
+                                    <span title={task.lastRunAt ? `Last run: ${new Date(task.lastRunAt).toLocaleString()}` : "Never run"}>
+                                      {statusIcon(task.lastStatus)}
+                                    </span>
+                                    <button
+                                      onClick={() => handleDeleteCronTask(task.id)}
+                                      title="Delete task"
+                                      style={{
+                                        background: "none", border: "none", cursor: "pointer",
+                                        color: "var(--text-muted)", padding: "2px 4px", fontSize: 12,
+                                      }}
+                                      onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; }}
+                                      onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
+                                    >
+                                      ✕
+                                    </button>
                                   </span>
-                                  <button
-                                    onClick={() => handleDeleteCronTask(task.id)}
-                                    title="Delete task"
-                                    style={{
-                                      background: "none", border: "none", cursor: "pointer",
-                                      color: "var(--text-muted)", padding: "2px 4px", fontSize: 12, flexShrink: 0,
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.color = "#ef4444"; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.color = "var(--text-muted)"; }}
-                                  >
-                                    ✕
-                                  </button>
                                 </div>
                               );
                             })}
