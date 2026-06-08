@@ -89,6 +89,13 @@ export function AppShell() {
     setActiveTopPanel((cur) => cur === panel ? null : panel);
   }, []);
 
+  // Refresh crontab data when session changes while panel is open
+  useEffect(() => {
+    if (activeTopPanel === "crontab" && selectedSession?.id) {
+      fetchCronTasks(selectedSession.id);
+    }
+  }, [selectedSession?.id]);
+
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
     const update = () => {
