@@ -646,7 +646,7 @@ export function AppShell() {
                     ) : (
                       <div style={{ padding: "12px 16px" }}>
                         {/* Add form — compact 5-column cron + prompt on one line */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
                           {cronFields.map((val, i) => (
                             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                               <span style={{ fontSize: 9, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{["Min", "Hr", "Day", "Mon", "WD"][i]}</span>
