@@ -645,56 +645,52 @@ export function AppShell() {
                       </div>
                     ) : (
                       <div style={{ padding: "12px 16px" }}>
-                        {/* Add form — 5-column grid aligned with labels */}
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", userSelect: "none" }}>
-                          {["Minute (0-59)", "Hour (0-23)", "Day (1-31)", "Month (1-12)", "Weekday (0-6)"].map((label) => (
-                            <span key={label} style={{ textAlign: "center" }}>{label}</span>
-                          ))}
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr) auto", gap: 4, alignItems: "center", marginBottom: 8 }}>
+                        {/* Add form — compact 5-column cron + prompt on one line */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
                           {cronFields.map((val, i) => (
-                            <input
-                              key={i}
-                              value={val}
-                              onChange={(e) => {
-                                const next = [...cronFields];
-                                next[i] = e.target.value;
-                                setCronFields(next);
-                              }}
-                              placeholder="*"
-                              style={{
-                                padding: "4px 0", fontSize: 11, textAlign: "center",
-                                fontFamily: "var(--font-mono)",
-                                background: "var(--bg)", border: "1px solid var(--border)",
-                                borderRadius: 4, color: "var(--text)", outline: "none", width: "100%",
-                              }}
-                            />
+                            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                              <span style={{ fontSize: 9, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>{["Min", "Hr", "Day", "Mon", "WD"][i]}</span>
+                              <input
+                                value={val}
+                                onChange={(e) => {
+                                  const next = [...cronFields];
+                                  next[i] = e.target.value;
+                                  setCronFields(next);
+                                }}
+                                placeholder="*"
+                                style={{
+                                  width: 36, padding: "4px 0", fontSize: 11, textAlign: "center",
+                                  fontFamily: "var(--font-mono)",
+                                  background: "var(--bg)", border: "1px solid var(--border)",
+                                  borderRadius: 4, color: "var(--text)", outline: "none",
+                                }}
+                              />
+                            </div>
                           ))}
+                          <input
+                            value={cronFormPrompt}
+                            onChange={(e) => setCronFormPrompt(e.target.value)}
+                            placeholder="Prompt to execute"
+                            style={{
+                              flex: 1, padding: "4px 8px", fontSize: 11, minWidth: 100,
+                              background: "var(--bg)", border: "1px solid var(--border)",
+                              borderRadius: 4, color: "var(--text)", outline: "none",
+                            }}
+                          />
                           <button
                             onClick={handleAddCronTask}
-                            disabled={cronFormSubmitting || cronFields.some(f => !f.trim())}
-                            title={cronFormPrompt.trim() ? "Add cron task" : "Enter a prompt first"}
+                            disabled={cronFormSubmitting || cronFields.some(f => !f.trim()) || !cronFormPrompt.trim()}
                             style={{
-                              padding: "4px 8px", fontSize: 11, borderRadius: 4,
+                              padding: "4px 10px", fontSize: 11, borderRadius: 4,
                               background: "var(--accent)", color: "#fff", border: "none",
                               cursor: cronFormSubmitting ? "default" : "pointer",
-                              opacity: cronFormSubmitting || cronFields.some(f => !f.trim()) ? 0.5 : 1,
+                              opacity: cronFormSubmitting || cronFields.some(f => !f.trim()) || !cronFormPrompt.trim() ? 0.5 : 1,
                               whiteSpace: "nowrap",
                             }}
                           >
-                            {cronFormSubmitting ? "..." : "+"}
+                            {cronFormSubmitting ? "..." : "Add"}
                           </button>
                         </div>
-                        <input
-                          value={cronFormPrompt}
-                          onChange={(e) => setCronFormPrompt(e.target.value)}
-                          placeholder="Prompt to execute"
-                          style={{
-                            width: "100%", padding: "4px 8px", fontSize: 11, marginBottom: 12,
-                            background: "var(--bg)", border: "1px solid var(--border)",
-                            borderRadius: 4, color: "var(--text)", outline: "none", boxSizing: "border-box",
-                          }}
-                        />
 
                         {/* Task list — 5-column cron aligned with inputs above */}
                         {cronTasks.length === 0 ? (
@@ -707,14 +703,13 @@ export function AppShell() {
                               const parts = task.cron.trim().split(/\s+/);
                               return (
                                 <div key={task.id} style={{
-                                  display: "grid", gridTemplateColumns: "repeat(5, 1fr) 1fr auto auto",
-                                  gap: 4, alignItems: "center",
-                                  padding: "6px 0", borderBottom: i < cronTasks.length - 1 ? "1px solid var(--border)" : "none",
+                                  display: "flex", alignItems: "center", gap: 6,
+                                  padding: "5px 0", borderBottom: i < cronTasks.length - 1 ? "1px solid var(--border)" : "none",
                                   fontSize: 12,
                                 }}>
-                                  {[0,1,2,3,4].map(ci => (
-                                    <code key={ci} style={{ textAlign: "center", fontFamily: "var(--font-mono)", fontSize: 11 }}>{parts[ci] ?? "*"}</code>
-                                  ))}
+                                  <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text)", whiteSpace: "nowrap" }}>
+                                    {parts.map((p, ci) => <span key={ci} style={{ display: "inline-block", width: 28, textAlign: "center" }}>{p}</span>)}
+                                  </code>
                                   <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 4 }}>
                                     {task.prompt.slice(0, 40)}{task.prompt.length > 40 ? "..." : ""}
                                   </span>
