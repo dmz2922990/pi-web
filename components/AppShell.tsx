@@ -703,12 +703,12 @@ export function AppShell() {
                               const parts = task.cron.trim().split(/\s+/);
                               return (
                                 <div key={task.id} style={{
-                                  display: "flex", alignItems: "center", gap: 6,
+                                  display: "flex", alignItems: "center", gap: 4,
                                   padding: "5px 0", borderBottom: i < cronTasks.length - 1 ? "1px solid var(--border)" : "none",
                                   fontSize: 12,
                                 }}>
                                   <code style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--text)", whiteSpace: "nowrap" }}>
-                                    {parts.map((p, ci) => <span key={ci} style={{ display: "inline-block", width: 28, textAlign: "center" }}>{p}</span>)}
+                                    {parts.map((p, ci) => <span key={ci} style={{ display: "inline-block", width: 36, textAlign: "center" }}>{p}</span>)}
                                   </code>
                                   <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 4 }}>
                                     {task.prompt.slice(0, 40)}{task.prompt.length > 40 ? "..." : ""}
