@@ -536,6 +536,47 @@ export function BubbleCreateDialog({ cwd, onClose, onBubbleCreated }: Props) {
 
 // --- Worker Manager ---
 
+const DEFAULT_WORKER_TEMPLATE = `<role>
+You are a senior code reviewer with deep expertise in software architecture, design patterns, and best practices.
+Your task is to review code changes thoroughly, focusing on correctness, maintainability, performance, and security.
+You provide actionable, precise feedback — not vague opinions.
+</role>
+
+<rule>
+1. Review Scope: Only comment on the diff and its immediate context. Do not propose unrelated refactors.
+2. Severity Levels: Classify each finding as [Critical], [Warning], or [Suggestion].
+   - [Critical]: Bugs, security vulnerabilities, logic errors, data loss risks.
+   - [Warning]: Potential issues, performance concerns, missing error handling.
+   - [Suggestion]: Style improvements, naming, readability enhancements.
+3. Be Specific: Always reference exact file paths and line numbers. Quote the relevant code snippet.
+4. Suggest Fixes: For every [Critical] or [Warning], provide a concrete fix — do not just describe the problem.
+5. No False Positives: If you are unsure whether something is a bug, state your uncertainty. Never flag definitively without confidence.
+6. No Nitpicking: Skip trivial style preferences that are already handled by linters or formatters.
+7. Acknowledge Good Code: Call out well-written sections when appropriate — review is not purely negative.
+8. Language: Use the same language as the codebase comments for all feedback.
+</rule>
+
+<env>
+{env.source_path}
+</env>
+
+<output_format>
+Respond with a structured review in the following format:
+
+## Summary
+<One-line verdict: approve, request changes, or needs discussion>
+
+## Findings
+For each finding:
+- **[Severity]** \`<file_path:line_number>\` — <description>
+  <code snippet if relevant>
+  **Fix:** <concrete suggestion>
+
+## Notes
+<Any additional observations, acknowledgments of good patterns, or context the author should know>
+</output_format>`;
+
+
 function WorkerManager({ workers, hosts, onBack, onRefresh }: {
 	workers: WorkerDefinition[];
 	hosts: HostConfig[];
@@ -558,7 +599,12 @@ function WorkerManager({ workers, hosts, onBack, onRefresh }: {
 
 	const newWorker = () => {
 		setSelected(null);
-		setForm({ name: "", label: "", systemPrompt: "", tools: [] });
+		setForm({
+				name: "",
+				label: "",
+				systemPrompt: DEFAULT_WORKER_TEMPLATE,
+				tools: [],
+			});
 		setError(null);
 		setDirty(false);
 	};
@@ -651,7 +697,10 @@ function WorkerManager({ workers, hosts, onBack, onRefresh }: {
 						{error && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8 }}>{error}</div>}
 						<FormInput label="Name" value={form.name ?? ""} onChange={(v) => { setForm((f) => ({ ...f, name: v })); setDirty(true); }} disabled={!!selected} placeholder="e.g. code-reviewer (kebab-case, unique ID)" />
 						<FormInput label="Label" value={form.label ?? ""} onChange={(v) => { setForm((f) => ({ ...f, label: v })); setDirty(true); }} placeholder="e.g. Code Reviewer (display name)" />
-						<FormTextarea label="System Prompt" value={form.systemPrompt ?? ""} onChange={(v) => { setForm((f) => ({ ...f, systemPrompt: v })); setDirty(true); }} rows={5} placeholder="Describe the worker role and behavior. This becomes the agent system prompt." />
+						<FormTextarea label="System Prompt" value={form.systemPrompt ?? ""} onChange={(v) => { setForm((f) => ({ ...f, systemPrompt: v })); setDirty(true); }} rows={12} placeholder="Describe the worker role and behavior. Use XML tags like <role>, <rule>, <env>, <output_format> for structure." />
+						<div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: -6, marginBottom: 8 }}>
+							Tip: Use <code>{"{"}env.xxx{"}"}</code> placeholders as variables, e.g. <code>{"{"}env.source_path{"}"}</code>. Configure their values in the Workflow step settings.
+						</div>
 						<FormInput label="Tools (comma-separated)" value={(form.tools ?? []).join(", ")} onChange={(v) => { setForm((f) => ({ ...f, tools: v.split(",").map((s) => s.trim()).filter(Boolean) })); setDirty(true); }} placeholder="e.g. read, write, bash (leave empty for default)" />
 						<FormInput label="Timeout (minutes)" value={form.timeoutMinutes?.toString() ?? ""} onChange={(v) => { setForm((f) => ({ ...f, timeoutMinutes: v ? parseInt(v) : undefined })); setDirty(true); }} placeholder="10 (default)" />
 						<div style={{ display: "flex", gap: 8, marginTop: 12 }}>
