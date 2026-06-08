@@ -63,6 +63,18 @@ child.stdout.on("data", (chunk) => {
   process.stdout.write(text);
   if (!browserOpened && text.includes("Ready")) {
     browserOpened = true;
+
+    // Display passkey info for random mode
+    if (!process.env.PI_WEB_PASSWORD) {
+      const homeDir = process.env.HOME || process.env.USERPROFILE || "";
+      const passkeyFile = path.join(homeDir, ".pi", "pi-web", "passkey");
+      try {
+        const passkey = fs.readFileSync(passkeyFile, "utf8").trim();
+        console.log(`\n  \u{1F510} Passkey: ${passkey}`);
+        console.log(`     (stored in ${passkeyFile})\n`);
+      } catch {}
+    }
+
     const isWindows = process.platform === "win32";
     const isMac = process.platform === "darwin";
     const openCmd = isWindows ? "start" : isMac ? "open" : "xdg-open";

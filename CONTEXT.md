@@ -75,6 +75,18 @@ _Avoid_: cron job, scheduled task, timer, alarm
 A process-level singleton that loads all **CronTasks** from disk at startup, maintains in-memory cron timers, and triggers execution at the scheduled time. Uses `getOrCreateWrapper` + `send({ type: "prompt" })` to execute, with per-session serial queues to prevent concurrent prompts. Survives hot-reload via `globalThis`.
 _Avoid_: cron engine, task runner, scheduler service
 
+**Passkey**:
+A secret string used to authenticate LAN clients accessing pi-web. Two sources: configured via `PI_WEB_PASSWORD` environment variable, or auto-generated as 32-character hex on each startup. Persisted as plain text in `~/.pi/pi-web/passkey` (file permission `600`). Used as the HMAC key for **Session Token** signing. localhost access is exempt from Passkey verification.
+_Avoid_: password, access token, auth token, secret key
+
+**Session Token**:
+A cryptographically signed value stored in an HttpOnly cookie after successful **Passkey** verification. Signed with HMAC using the current Passkey as the key. Automatically invalidates when the Passkey changes (e.g. server restart in random mode). Verified by Next.js middleware on every non-localhost request.
+_Avoid_: auth cookie, JWT, access token
+
+**Login Page**:
+An independent `/login` route that displays a password input form and the Passkey file path hint (`~/.pi/pi-web/passkey`). Shown to LAN clients that lack a valid **Session Token** cookie. API requests without a valid token receive `401` instead of redirect.
+_Avoid_: auth screen, sign-in page
+
 ## Relationships
 
 - A **Worker** is a standalone, reusable definition stored in `~/.pi/agent/workers/`
@@ -103,6 +115,10 @@ _Avoid_: cron engine, task runner, scheduler service
 - Deleting a session or bubble automatically deletes all associated **CronTasks**
 - **CronTask** management via IM: `#target /c add "cron-expr" prompt`, `#target /c list`, `#target /c del #N`
 - **CronTask** management via UI: Crontab tab on the session conversation page (next to System tab)
+- A **Passkey** is either user-configured (`PI_WEB_PASSWORD`) or auto-generated (32-char hex) on startup; stored in `~/.pi/pi-web/passkey`
+- **Session Token** is an HMAC-signed HttpOnly cookie; Passkey change or server restart invalidates all tokens
+- Localhost requests bypass authentication; LAN clients without a valid **Session Token** are redirected to the **Login Page**
+- The **Login Page** displays a password form and the Passkey file path hint for LAN users
 
 ## Example Dialogue
 

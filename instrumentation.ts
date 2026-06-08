@@ -1,5 +1,16 @@
 export async function register() {
 	if (process.env.NEXT_RUNTIME === "nodejs") {
+		const { initializePasskey, getPasskeyPath } = await import(
+			"./lib/auth"
+		);
+		const passkey = initializePasskey();
+		const mode = process.env.PI_WEB_PASSWORD ? "configured" : "random";
+		console.log(`[pi-web-auth] Passkey initialized (${mode} mode)`);
+		console.log(`[pi-web-auth] Passkey file: ${getPasskeyPath()}`);
+		if (!process.env.PI_WEB_PASSWORD) {
+			console.log(`[pi-web-auth] Passkey: ${passkey}`);
+		}
+
 		const { startFeishuBot } = await import("./lib/feishu-bot");
 		const feishuBot = await startFeishuBot();
 		if (feishuBot) {
