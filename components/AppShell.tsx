@@ -683,13 +683,14 @@ export function AppShell() {
                         )}
 
                         {/* Add form */}
-                        <pre style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", margin: "0 0 4px 0", lineHeight: 1.4, userSelect: "none" }}>{`┌────── Minute (0-59)
-│ ┌──── Hour (0-23)
-│ │ ┌── Day (1-31)
-│ │ │ ┌ Month (1-12)
-│ │ │ │ ┌ Weekday (0-6)
-│ │ │ │ │
-* * * * *`}</pre>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 0, fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: 4, userSelect: "none" }}>
+                          {["Minute (0-59)", "Hour (0-23)", "Day (1-31)", "Month (1-12)", "Weekday (0-6)"].map((label) => (
+                            <span key={label} style={{ textAlign: "center" }}>{label}</span>
+                          ))}
+                          {["*", "*", "*", "*", "*"].map((v, i) => (
+                            <span key={i} style={{ textAlign: "center", color: "var(--text)" }}>{v}</span>
+                          ))}
+                        </div>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <input
                             value={cronFormCron}
