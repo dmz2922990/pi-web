@@ -12,8 +12,8 @@ export interface WecomConfig {
 	enabled: boolean;
 	botId: string;
 	secret: string;
-	allowedChats: string[];
-	allowedUsers: string[];
+	allowedChats?: string[];
+	allowedUsers?: string[];
 	agentTimeoutMs?: number;
 }
 
@@ -193,9 +193,11 @@ class WecomBot extends BaseBot<WecomBotStatus> {
 		const chatId = body.chatid || body.from?.userid;
 		if (!chatId) return;
 
-		// Allowlist check
-		const isAllowedChat = body.chatid && this.config.allowedChats.includes(body.chatid);
-		const isAllowedUser = body.from?.userid && this.config.allowedUsers.includes(body.from.userid);
+		// Allowlist check (empty allowlist = allow all)
+		const allowedChats = this.config.allowedChats ?? [];
+		const allowedUsers = this.config.allowedUsers ?? [];
+		const isAllowedChat = allowedChats.length === 0 || (body.chatid && allowedChats.includes(body.chatid));
+		const isAllowedUser = allowedUsers.length === 0 || (body.from?.userid && allowedUsers.includes(body.from.userid));
 		if (!isAllowedChat && !isAllowedUser) return;
 
 		const text = body.text?.content?.trim();

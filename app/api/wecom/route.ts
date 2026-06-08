@@ -24,7 +24,7 @@ export async function GET() {
 	if (!bot) {
 		return NextResponse.json({
 			status: "stopped",
-			config: { enabled: true, allowedChats: config.allowedChats.length, allowedUsers: config.allowedUsers.length },
+			config: { enabled: true, allowedChats: config.allowedChats?.length ?? 0, allowedUsers: config.allowedUsers?.length ?? 0 },
 		});
 	}
 

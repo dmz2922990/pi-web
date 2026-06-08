@@ -244,7 +244,14 @@ export abstract class BaseBot<TStatus> {
 	protected async executeSessionList(chatId: string): Promise<void> {
 		const sessions = await listAllSessions();
 		const bubbleSessionIds = this.getbubbleSessionIds();
-		const filtered = sessions.filter((s) => !bubbleSessionIds.has(s.id));
+		const filtered = sessions
+			.filter((s) => !bubbleSessionIds.has(s.id))
+			.sort((a, b) => {
+				// Sort by creation time descending for stable numbering
+				const ta = a.created ?? "";
+				const tb = b.created ?? "";
+				return tb.localeCompare(ta);
+			});
 		const simplified = filtered.map((s) => ({
 			id: s.id,
 			name: s.name ?? null,
