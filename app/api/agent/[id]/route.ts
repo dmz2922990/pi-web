@@ -21,18 +21,16 @@ export async function POST(
       return NextResponse.json({ success: true, data: result });
     }
 
-    const filePath = await resolveSessionPath(id);
-    if (!filePath) {
-      return NextResponse.json({ error: "Session not found" }, { status: 404 });
-    }
-
-    // Try bubble session restore first (preserves SSH tools)
-    console.log("[POST /api/agent] trying restoreBubbleSession for", id);
+    // Try bubble session restore first (preserves SSH tools) before file lookup
     const bubbleSession = await restoreBubbleSession(id);
-    console.log("[POST /api/agent] bubbleSession=", !!bubbleSession);
     if (bubbleSession) {
       const result = await bubbleSession.send(body);
       return NextResponse.json({ success: true, data: result });
+    }
+
+    const filePath = await resolveSessionPath(id);
+    if (!filePath) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
     const cwd = SessionManager.open(filePath).getHeader()?.cwd ?? process.cwd();
