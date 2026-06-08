@@ -644,13 +644,59 @@ export function AppShell() {
                       </div>
                     ) : (
                       <div style={{ padding: "12px 16px" }}>
+                        {/* Add form */}
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 0, fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: 4, userSelect: "none" }}>
+                          {["Minute (0-59)", "Hour (0-23)", "Day (1-31)", "Month (1-12)", "Weekday (0-6)"].map((label) => (
+                            <span key={label} style={{ textAlign: "center" }}>{label}</span>
+                          ))}
+                          {["*", "*", "*", "*", "*"].map((v, i) => (
+                            <span key={i} style={{ textAlign: "center", color: "var(--text)" }}>{v}</span>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+                          <input
+                            value={cronFormCron}
+                            onChange={(e) => setCronFormCron(e.target.value)}
+                            placeholder="* * * * *"
+                            style={{
+                              width: 130, padding: "4px 8px", fontSize: 11,
+                              fontFamily: "var(--font-mono)",
+                              background: "var(--bg)", border: "1px solid var(--border)",
+                              borderRadius: 4, color: "var(--text)", outline: "none",
+                            }}
+                          />
+                          <input
+                            value={cronFormPrompt}
+                            onChange={(e) => setCronFormPrompt(e.target.value)}
+                            placeholder="Prompt to execute"
+                            style={{
+                              flex: 1, padding: "4px 8px", fontSize: 11,
+                              background: "var(--bg)", border: "1px solid var(--border)",
+                              borderRadius: 4, color: "var(--text)", outline: "none", minWidth: 0,
+                            }}
+                          />
+                          <button
+                            onClick={handleAddCronTask}
+                            disabled={cronFormSubmitting || !cronFormCron.trim() || !cronFormPrompt.trim()}
+                            style={{
+                              padding: "4px 12px", fontSize: 11, borderRadius: 4,
+                              background: "var(--accent)", color: "#fff", border: "none",
+                              cursor: cronFormSubmitting ? "default" : "pointer",
+                              opacity: cronFormSubmitting || !cronFormCron.trim() || !cronFormPrompt.trim() ? 0.5 : 1,
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {cronFormSubmitting ? "..." : "Add"}
+                          </button>
+                        </div>
+
                         {/* Task list */}
                         {cronTasks.length === 0 ? (
-                          <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic", marginBottom: 12 }}>
+                          <div style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
                             No cron tasks for this session.
                           </div>
                         ) : (
-                          <div style={{ marginBottom: 12 }}>
+                          <div>
                             {cronTasks.map((task, i) => (
                               <div key={task.id} style={{
                                 display: "flex", alignItems: "center", gap: 8,
@@ -681,53 +727,6 @@ export function AppShell() {
                             ))}
                           </div>
                         )}
-
-                        {/* Add form */}
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 0, fontSize: 10, color: "var(--text-dim)", fontFamily: "var(--font-mono)", marginBottom: 4, userSelect: "none" }}>
-                          {["Minute (0-59)", "Hour (0-23)", "Day (1-31)", "Month (1-12)", "Weekday (0-6)"].map((label) => (
-                            <span key={label} style={{ textAlign: "center" }}>{label}</span>
-                          ))}
-                          {["*", "*", "*", "*", "*"].map((v, i) => (
-                            <span key={i} style={{ textAlign: "center", color: "var(--text)" }}>{v}</span>
-                          ))}
-                        </div>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <input
-                            value={cronFormCron}
-                            onChange={(e) => setCronFormCron(e.target.value)}
-                            placeholder="* * * * *"
-                            style={{
-                              width: 130, padding: "4px 8px", fontSize: 11,
-                              fontFamily: "var(--font-mono)",
-                              background: "var(--bg)", border: "1px solid var(--border)",
-                              borderRadius: 4, color: "var(--text)", outline: "none",
-                            }}
-                          />
-                          <input
-                            value={cronFormPrompt}
-                            onChange={(e) => setCronFormPrompt(e.target.value)}
-                            placeholder="Prompt to execute"
-                            onKeyDown={(e) => { if (e.key === "Enter") handleAddCronTask(); }}
-                            style={{
-                              flex: 1, padding: "4px 8px", fontSize: 11,
-                              background: "var(--bg)", border: "1px solid var(--border)",
-                              borderRadius: 4, color: "var(--text)", outline: "none", minWidth: 0,
-                            }}
-                          />
-                          <button
-                            onClick={handleAddCronTask}
-                            disabled={cronFormSubmitting || !cronFormCron.trim() || !cronFormPrompt.trim()}
-                            style={{
-                              padding: "4px 12px", fontSize: 11, borderRadius: 4,
-                              background: "var(--accent)", color: "#fff", border: "none",
-                              cursor: cronFormSubmitting ? "default" : "pointer",
-                              opacity: cronFormSubmitting || !cronFormCron.trim() || !cronFormPrompt.trim() ? 0.5 : 1,
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {cronFormSubmitting ? "..." : "Add"}
-                          </button>
-                        </div>
                       </div>
                     )}
                   </div>
