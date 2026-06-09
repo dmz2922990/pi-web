@@ -444,6 +444,83 @@ export class BubbleManager {
 		return this.workerWrappers.get(sessionId) ?? null;
 	}
 
+	async restoreGatewaySession(): Promise<AgentSessionWrapper | null> {
+		if (this.gatewayWrapper?.isAlive()) return this.gatewayWrapper;
+
+		const gwSessionFile = this.bubble.gatewaySessionFile ?? await resolveSessionPath(this.bubble.gatewaySessionId);
+		if (!gwSessionFile) return null;
+
+		const registry = (globalThis as Record<string, unknown>).__piSessions as
+			| Map<string, AgentSessionWrapper>
+			| undefined;
+		if (!registry) return null;
+
+		try {
+			// Build invoke tools from current worker configs
+			const configs = this.isWorkflowMode()
+				? [...this.workerConfigs.values()]
+				: this.template!.roles.map((role) => ({
+						name: role.name,
+						label: role.label,
+						systemPrompt: role.systemPrompt,
+						tools: role.tools,
+						model: role.model,
+						timeoutMinutes: role.timeoutMinutes,
+						executionMode: role.executionMode as "local" | "ssh" | undefined,
+						ssh: role.ssh,
+						hostId: role.hostId,
+					}));
+			const invokeTools = configs.map((wc) => this.createInvokeTool(wc));
+			const submitResultTool = this.createSubmitResultTool();
+			const customTools = [...invokeTools, submitResultTool];
+			const customToolNames = customTools.map((t) => t.name);
+
+			// Build gateway prompt
+			let gatewayPrompt: string;
+			if (this.isWorkflowMode()) {
+				const workersObj: Record<string, WorkerDefinition> = {};
+				for (const [name, w] of this.workflowWorkers) workersObj[name] = w;
+				const wPaths: Record<string, string> = {};
+				for (const [name, wc] of this.workerConfigs) {
+					wPaths[name] = wc.ssh?.remoteCwd ?? this.bubble.cwd;
+				}
+				gatewayPrompt = this.interpolateEnv(
+					compileWorkflowToPrompt(this.workflow!, workersObj, wPaths),
+				);
+			} else {
+				gatewayPrompt = this.interpolateEnv(this.template!.gateway.systemPrompt);
+			}
+
+			const gwSessionManager = SessionManager.open(gwSessionFile, undefined);
+			const gwLoader = new DefaultResourceLoader({
+				cwd: this.bubble.cwd,
+				agentDir: getAgentDir(),
+				systemPromptOverride: () => gatewayPrompt,
+				appendSystemPromptOverride: () => [],
+			});
+			await gwLoader.reload();
+
+			const { session: gwInner } = await createAgentSession({
+				cwd: this.bubble.cwd,
+				agentDir: getAgentDir(),
+				resourceLoader: gwLoader,
+				sessionManager: gwSessionManager,
+				tools: customToolNames as unknown as string[],
+				customTools,
+			});
+
+			const gwWrapper = new AgentSessionWrapper(gwInner, { noIdleTimeout: true });
+			gwWrapper.start();
+			cacheSessionPath(gwInner.sessionId as string, gwSessionFile);
+			gwWrapper.onDestroy(() => registry.delete(gwInner.sessionId as string));
+			registry.set(gwInner.sessionId as string, gwWrapper);
+			this.setGatewayWrapper(gwWrapper);
+			return gwWrapper;
+		} catch {
+			return null;
+		}
+	}
+
 	async destroy(): Promise<void> {
 		// Abort + destroy synchronously; abort() runs in background to avoid
 		// hanging when a worker is stuck on SSH I/O.
@@ -906,13 +983,15 @@ async function ensureManager(bubble: Bubble): Promise<BubbleManager | null> {
 		}
 	}
 
-	// Restore existing gateway if alive
+	// Restore gateway: reuse if alive, otherwise rebuild from session file
 	const registry = (globalThis as Record<string, unknown>).__piSessions as
 		| Map<string, AgentSessionWrapper>
 		| undefined;
 	const gwSession = registry?.get(bubble.gatewaySessionId);
 	if (gwSession?.isAlive()) {
 		manager.setGatewayWrapper(gwSession);
+	} else if (bubble.gatewaySessionId) {
+		await manager.restoreGatewaySession();
 	}
 
 	// Restore existing alive workers

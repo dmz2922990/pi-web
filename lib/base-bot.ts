@@ -450,11 +450,16 @@ export abstract class BaseBot<TStatus> {
 
 		if (resolved.type === "bubble") {
 			// For bubbles, the BubbleManager should have already created the gateway wrapper.
-			// Import getBubbleManager dynamically to avoid circular deps at module level.
-			const { getBubbleManager } = await import("./bubble-manager");
+			// Import dynamically to avoid circular deps at module level.
+			const { getBubbleManager, restoreBubbleSession } = await import("./bubble-manager");
 			const manager = getBubbleManager(resolved.bubbleId!);
 			const gw = manager?.getGatewayWrapper();
 			if (gw?.isAlive()) return gw;
+
+			// Gateway not in registry — try restoring (lost after HMR / server restart)
+			const restored = await restoreBubbleSession(resolved.sessionId);
+			if (restored?.isAlive()) return restored;
+
 			throw new Error(`Bubble gateway not running: ${resolved.name}`);
 		}
 

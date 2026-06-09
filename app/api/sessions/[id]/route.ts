@@ -10,7 +10,7 @@ import {
 } from "@/lib/session-reader";
 import { getRpcSession } from "@/lib/rpc-manager";
 import { getCachedSystemPrompt } from "@/lib/system-prompt-cache";
-import { isBubbleRemoteSession } from "@/lib/bubble-manager";
+import { isBubbleRemoteSession, restoreBubbleSession } from "@/lib/bubble-manager";
 
 export async function GET(
   req: Request,
@@ -60,8 +60,15 @@ export async function GET(
         const state = await rpc.send({ type: "get_state" });
         agentState = { running: true, state };
       } else {
-        const cachedPrompt = getCachedSystemPrompt(id);
-        agentState = { running: false, state: cachedPrompt ? { systemPrompt: cachedPrompt } : undefined };
+        // Try restoring bubble session (gateway/worker may not be in registry after HMR)
+        const bubbleSession = await restoreBubbleSession(id);
+        if (bubbleSession?.isAlive()) {
+          const state = await bubbleSession.send({ type: "get_state" });
+          agentState = { running: true, state };
+        } else {
+          const cachedPrompt = getCachedSystemPrompt(id);
+          agentState = { running: false, state: cachedPrompt ? { systemPrompt: cachedPrompt } : undefined };
+        }
       }
     }
 
