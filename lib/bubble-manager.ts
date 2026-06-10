@@ -306,7 +306,8 @@ export class BubbleManager {
 		// Recreate the worker
 		try {
 			await this.createWorkerFromConfig(wc);
-			updateBubble(this.bubble.id, { workers: this.bubble.workers });
+			// Only update in-memory workers; do NOT write to disk — bubble.json
+			// workers are immutable after initial creation in start().
 			const entry = this.bubble.workers.find((w) => w.roleName === roleName);
 			return entry ? this.workerWrappers.get(entry.sessionId) ?? null : null;
 		} catch {
