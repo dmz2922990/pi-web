@@ -24,7 +24,7 @@ interface Props {
 }
 
 export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelete }: Props) {
-	const [collapsed, setCollapsed] = useState(false);
+	const [collapsed, setCollapsed] = useState(true);
 
 	const anyWorking =
 		bubble.gatewayStreaming ||
@@ -58,13 +58,18 @@ export function BubbleNode({ bubble, selectedSessionId, onSelectSession, onDelet
 					padding: "8px 10px", cursor: "pointer",
 					borderRadius: 7, transition: "background 0.12s",
 				}}
-				onClick={() => setCollapsed(!collapsed)}
+				onClick={() => {
+				if (bubble.gatewaySessionId) {
+					onSelectSession(makeSessionInfo(bubble.gatewaySessionId, `Gateway (${bubbleLabel})`));
+				}
+			}}
 				onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-hover)"; }}
 				onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
 			>
 				<svg
 					width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor"
 					strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+					onClick={(e) => { e.stopPropagation(); setCollapsed(!collapsed); }}
 					style={{
 						flexShrink: 0, transition: "transform 0.15s",
 						transform: collapsed ? "rotate(-90deg)" : "rotate(0deg)",
