@@ -24,6 +24,27 @@ interface WorkerInstanceConfig {
 	hostId?: string;
 }
 
+// --- Resolve SSH config from persisted hostId ---
+
+async function resolveSshFromHostId(hostId: string | undefined): Promise<{ executionMode: "ssh"; ssh: SshConfig; hostId: string } | {}> {
+	if (!hostId || hostId === "local") return {};
+	const { getHost } = await import("./host-store");
+	const hostConfig = getHost(hostId);
+	if (!hostConfig) return {};
+	return {
+		executionMode: "ssh" as const,
+		ssh: {
+			host: hostConfig.host,
+			port: hostConfig.port,
+			user: hostConfig.user,
+			password: hostConfig.password,
+			privateKey: hostConfig.privateKey,
+			remoteCwd: hostConfig.remoteCwd,
+		},
+		hostId,
+	};
+}
+
 // --- Registry ---
 
 interface BubbleManagerMap {
@@ -951,6 +972,8 @@ async function ensureManager(bubble: Bubble): Promise<BubbleManager | null> {
 			const def = getWorker(name);
 			if (def) {
 				workerDefsMap.set(name, def);
+				const worker = bubble.workers.find((w) => w.roleName === name || w.workerName === name);
+				const sshFields = await resolveSshFromHostId(worker?.hostId);
 				configs.set(name, {
 					name: def.name,
 					label: def.label,
@@ -958,6 +981,7 @@ async function ensureManager(bubble: Bubble): Promise<BubbleManager | null> {
 					tools: def.tools,
 					model: def.model,
 					timeoutMinutes: def.timeoutMinutes,
+					...sshFields,
 				});
 			}
 		}
@@ -1089,6 +1113,8 @@ async function doRestore(): Promise<void> {
 				if (def) {
 					workerDefsMap.set(name, def);
 					workerDefsRecord[name] = def;
+					const worker = bubble.workers.find((w) => w.roleName === name || w.workerName === name);
+					const sshFields = await resolveSshFromHostId(worker?.hostId);
 					configs.set(name, {
 						name: def.name,
 						label: def.label,
@@ -1096,6 +1122,7 @@ async function doRestore(): Promise<void> {
 						tools: def.tools,
 						model: def.model,
 						timeoutMinutes: def.timeoutMinutes,
+						...sshFields,
 					});
 				}
 			}
