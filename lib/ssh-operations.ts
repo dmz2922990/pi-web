@@ -178,10 +178,12 @@ export class SshConnection {
 
 				stream
 					.on("data", (data: Buffer) => {
+						if (settled) return;
 						stdout += data.toString();
 						options?.onData?.(data);
 					})
 					.on("stderr", (data: Buffer) => {
+						if (settled) return;
 						stderr += data.toString();
 					})
 					.on("close", (code: number | null) => {
