@@ -216,15 +216,16 @@ export class BubbleManager {
 		const workerSessionManager = SessionManager.create(cwd, undefined);
 
 		let workerInner: Awaited<ReturnType<typeof createAgentSession>>["session"];
+		let workerSshConn: SshConnection | undefined;
 
 		if (wc.executionMode === "ssh" && wc.ssh) {
 			const sshConfig = this.interpolateSshConfig(wc.ssh);
-			const sshConn = new SshConnection(sshConfig);
-			await sshConn.connect();
-			this.sshConnections.push(sshConn);
+			workerSshConn = new SshConnection(sshConfig);
+			await workerSshConn.connect();
+			this.sshConnections.push(workerSshConn);
 
 			const workerCwd = sshConfig.remoteCwd ?? cwd;
-			const sshToolInstances = createSshTools(workerCwd, sshConn);
+			const sshToolInstances = createSshTools(workerCwd, workerSshConn);
 			const sshToolNames = sshToolInstances.map((t) => t.name);
 
 			const result = await createAgentSession({
@@ -264,6 +265,14 @@ export class BubbleManager {
 		if (interpolatedPrompt) cacheSystemPrompt(realSessionId, interpolatedPrompt);
 
 		wrapper.onDestroy(() => registry?.delete(realSessionId));
+		// Disconnect SSH when wrapper is destroyed (invoke failure, bubble shutdown)
+		if (workerSshConn) {
+			const conn = workerSshConn;
+			wrapper.onDestroy(() => {
+				try { conn.disconnect(); } catch { /* ignore */ }
+				this.sshConnections = this.sshConnections.filter((c) => c !== conn);
+			});
+		}
 		registry?.set(realSessionId, wrapper);
 
 		this.workerWrappers.set(realSessionId, wrapper);
